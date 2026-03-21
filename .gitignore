@@ -1,0 +1,15 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Streamlit secrets (keep API keys out of git)
+.streamlit/secrets.toml
+
+# Temp files
+*.tmp

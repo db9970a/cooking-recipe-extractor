@@ -1,0 +1,6 @@
+anthropic
+streamlit
+yt-dlp
+fpdf2
+markdown
+opencv-python-headless
