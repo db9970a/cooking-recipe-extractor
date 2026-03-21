@@ -5,3 +5,5 @@ fpdf2
 markdown
 opencv-python-headless
 streamlit-cookies-controller
+requests
+beautifulsoup4

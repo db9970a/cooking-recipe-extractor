@@ -7,9 +7,11 @@ import shutil
 import tempfile
 import datetime
 import cv2
+import requests
 import streamlit as st
 import anthropic
 import yt_dlp
+from bs4 import BeautifulSoup
 from fpdf import FPDF
 from streamlit_cookies_controller import CookieController
 
@@ -326,6 +328,72 @@ video. If a quantity is hard to determine precisely, give your best visual estim
 with "(approx)". If the video does not appear to be a cooking video, say so clearly.
 """
 
+WEBSITE_SYSTEM_PROMPT = """You are a professional recipe writer. You are given the raw text
+scraped from a recipe website, which may include lots of irrelevant content such as ads,
+navigation menus, comments, related articles, and cookie notices.
+
+Your job is to find the actual recipe buried in the text and rewrite it as a clean,
+complete recipe. Ignore everything that is not part of the recipe.
+
+Produce a well-formatted recipe including:
+
+1. **Dish name** — clear and descriptive
+2. **Overview** — 1-2 sentences describing the dish
+3. **Servings**, **Prep time**, **Cook time**, **Total time**
+4. **Ingredients** — with precise quantities and any prep notes (e.g. "diced", "at room temperature")
+5. **Instructions** — clear numbered steps
+6. **Chef's tips** — any useful tips, variations, or substitutions mentioned on the page
+7. **Storage** — how to store leftovers (if mentioned or relevant)
+
+Use markdown formatting. If no recipe can be found in the text, say so clearly.
+"""
+
+
+def fetch_webpage_text(url: str) -> tuple[str, str]:
+    """Fetch a webpage and return (page_title, cleaned_text)."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    resp = requests.get(url, headers=headers, timeout=20)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Page title
+    title_tag = soup.find("title")
+    page_title = title_tag.get_text(strip=True) if title_tag else ""
+
+    # Strip boilerplate tags
+    for tag in soup(["script", "style", "nav", "header", "footer", "aside",
+                     "iframe", "noscript", "form", "button", "meta", "link",
+                     "advertisement", "banner"]):
+        tag.decompose()
+
+    # Prefer the main content block when available
+    main = (
+        soup.find("main")
+        or soup.find("article")
+        or soup.find(attrs={"class": re.compile(r"recipe|content|post|entry|article", re.I)})
+        or soup.find("body")
+    )
+
+    raw_text = main.get_text(separator="\n", strip=True) if main else soup.get_text(separator="\n", strip=True)
+
+    # Collapse blank lines
+    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+    cleaned = "\n".join(lines)
+
+    # Keep to a reasonable token budget (~40 000 chars ≈ ~10 000 tokens)
+    if len(cleaned) > 40_000:
+        cleaned = cleaned[:40_000] + "\n\n[Page content truncated]"
+
+    return page_title, cleaned
+
+
 # ── Layout: sidebar (history) + main ─────────────────────────────────────────
 
 user_id = get_user_id()
@@ -368,95 +436,164 @@ with st.sidebar:
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 
-st.title("🍳 Cooking Video Recipe Extractor")
-st.markdown("Paste a cooking video link and get a complete recipe extracted automatically.")
+st.title("🍳 Cooking Recipe Extractor")
+st.markdown("Extract a clean, readable recipe from a cooking video **or** a cluttered recipe website.")
 
-with st.form("url_form"):
-    url = st.text_input("Video URL", placeholder="https://www.youtube.com/watch?v=...")
-    submitted = st.form_submit_button("Extract Recipe", type="primary")
+tab_video, tab_web = st.tabs(["🎬  From a Video", "🌐  From a Website"])
 
-if submitted and url.strip():
-    url = url.strip()
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 1 — VIDEO
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with tab_video:
+    st.markdown("Paste a TikTok, YouTube, Instagram, or other cooking video link.")
+    with st.form("url_form"):
+        url = st.text_input("Video URL", placeholder="https://www.tiktok.com/@...")
+        submitted = st.form_submit_button("Extract Recipe from Video", type="primary")
 
-    video_path = None
-    try:
-        with st.status("Fetching video...", expanded=True) as status:
-            st.write("Retrieving video metadata...")
-            metadata = get_video_metadata(url)
+    if submitted and url.strip():
+        url = url.strip()
+        video_path = None
+        try:
+            with st.status("Fetching video...", expanded=True) as status:
+                st.write("Retrieving video metadata...")
+                metadata = get_video_metadata(url)
 
-            if "error" in metadata and not metadata["title"]:
-                status.update(label="Could not fetch video", state="error")
-                st.error(f"Unable to access the video: {metadata['error']}\n\nMake sure the URL is valid and the video is public.")
+                if "error" in metadata and not metadata["title"]:
+                    status.update(label="Could not fetch video", state="error")
+                    st.error(f"Unable to access the video: {metadata['error']}\n\nMake sure the URL is valid and the video is public.")
+                    st.stop()
+
+                if metadata.get("title"):
+                    st.write(f"Found: **{metadata['title']}**")
+
+                st.write("Downloading video...")
+                video_path = download_video(url)
+
+                if not video_path:
+                    status.update(label="Could not download video", state="error")
+                    st.error("Unable to download this video. Make sure the URL is valid and the video is public.")
+                    st.stop()
+
+                file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                st.write(f"Video downloaded ({file_size_mb:.1f} MB). Extracting frames...")
+                frames = extract_frames(video_path)
+                st.write(f"Extracted {len(frames)} frames.")
+                status.update(label="Video ready!", state="complete")
+
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                st.error("ANTHROPIC_API_KEY environment variable is not set.")
                 st.stop()
 
+            client = anthropic.Anthropic(api_key=api_key)
+            st.markdown("---")
             if metadata.get("title"):
-                st.write(f"Found: **{metadata['title']}**")
+                st.subheader(f"Recipe from: {metadata['title']}")
 
-            st.write("Downloading video...")
-            video_path = download_video(url)
+            recipe_placeholder = st.empty()
+            full_recipe = ""
+            title_hint = f" titled \"{metadata['title']}\"" if metadata.get("title") else ""
 
-            if not video_path:
-                status.update(label="Could not download video", state="error")
-                st.error("Unable to download this video. Make sure the URL is valid and the video is public.")
-                st.stop()
+            with st.spinner("Claude is watching the video and writing the recipe..."):
+                try:
+                    with client.messages.stream(
+                        model="claude-opus-4-6",
+                        max_tokens=4096,
+                        system=SYSTEM_PROMPT,
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                *[{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": frame}} for frame in frames],
+                                {"type": "text", "text": f"These are {len(frames)} frames extracted in order from a cooking video{title_hint}. Please extract the complete recipe."},
+                            ],
+                        }],
+                    ) as stream:
+                        for text_chunk in stream.text_stream:
+                            full_recipe += text_chunk
+                            recipe_placeholder.markdown(full_recipe + "▌")
+                    recipe_placeholder.markdown(full_recipe)
+                except anthropic.AuthenticationError:
+                    st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
+                except anthropic.RateLimitError:
+                    st.error("Rate limit reached. Please wait a moment and try again.")
+                except anthropic.APIError as e:
+                    st.error(f"API error: {e}")
 
-            file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-            st.write(f"Video downloaded ({file_size_mb:.1f} MB). Extracting frames...")
+            if full_recipe:
+                st.session_state["pending_recipe"] = {
+                    "recipe": full_recipe,
+                    "title": metadata.get("title", "Untitled"),
+                    "url": url,
+                    "thumbnail": metadata.get("thumbnail", ""),
+                }
+                st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", metadata.get("title", "Untitled"))[:80]
+                st.rerun()
 
-            frames = extract_frames(video_path)
-            st.write(f"Extracted {len(frames)} frames.")
+        finally:
+            if video_path:
+                shutil.rmtree(os.path.dirname(video_path), ignore_errors=True)
 
-            status.update(label="Video ready!", state="complete")
+    elif submitted:
+        st.warning("Please enter a video URL.")
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 2 — WEBSITE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with tab_web:
+    st.markdown(
+        "Paste the URL of any recipe webpage. The AI will ignore the ads, menus, and clutter "
+        "and pull out just the recipe."
+    )
+    with st.form("web_form"):
+        web_url = st.text_input("Website URL", placeholder="https://www.seriouseats.com/...")
+        web_submitted = st.form_submit_button("Extract Recipe from Website", type="primary")
+
+    if web_submitted and web_url.strip():
+        web_url = web_url.strip()
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            st.error("ANTHROPIC_API_KEY environment variable is not set. Please set it before running the app.")
+            st.error("ANTHROPIC_API_KEY environment variable is not set.")
             st.stop()
 
-        client = anthropic.Anthropic(api_key=api_key)
+        with st.status("Fetching page...", expanded=True) as status:
+            try:
+                st.write("Loading the page...")
+                page_title, page_text = fetch_webpage_text(web_url)
+                st.write(f"Page loaded ({len(page_text):,} characters). Looking for the recipe...")
+                status.update(label="Page ready!", state="complete")
+            except requests.exceptions.RequestException as e:
+                status.update(label="Could not load page", state="error")
+                st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
+                st.stop()
 
+        client = anthropic.Anthropic(api_key=api_key)
         st.markdown("---")
-        if metadata.get("title"):
-            st.subheader(f"Recipe from: {metadata['title']}")
+        if page_title:
+            st.subheader(f"Recipe from: {page_title}")
 
         recipe_placeholder = st.empty()
         full_recipe = ""
 
-        title_hint = f" titled \"{metadata['title']}\"" if metadata.get("title") else ""
-
-        with st.spinner("Claude is watching the video and writing the recipe..."):
+        with st.spinner("Claude is reading the page and writing the recipe..."):
             try:
                 with client.messages.stream(
                     model="claude-opus-4-6",
                     max_tokens=4096,
-                    system=SYSTEM_PROMPT,
+                    system=WEBSITE_SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
-                        "content": [
-                            *[
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "image/jpeg",
-                                        "data": frame,
-                                    },
-                                }
-                                for frame in frames
-                            ],
-                            {
-                                "type": "text",
-                                "text": f"These are {len(frames)} frames extracted in order from a cooking video{title_hint}. Please extract the complete recipe.",
-                            },
-                        ],
+                        "content": (
+                            f"Here is the text content scraped from this recipe page:\n"
+                            f"URL: {web_url}\n\n"
+                            f"{page_text}"
+                        ),
                     }],
                 ) as stream:
                     for text_chunk in stream.text_stream:
                         full_recipe += text_chunk
                         recipe_placeholder.markdown(full_recipe + "▌")
-
                 recipe_placeholder.markdown(full_recipe)
-
             except anthropic.AuthenticationError:
                 st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
             except anthropic.RateLimitError:
@@ -465,25 +602,22 @@ if submitted and url.strip():
                 st.error(f"API error: {e}")
 
         if full_recipe:
+            display_title = page_title or web_url
             st.session_state["pending_recipe"] = {
                 "recipe": full_recipe,
-                "title": metadata.get("title", "Untitled"),
-                "url": url,
-                "thumbnail": metadata.get("thumbnail", ""),
+                "title": display_title,
+                "url": web_url,
+                "thumbnail": "",
             }
-            st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", metadata.get("title", "Untitled"))[:80]
+            st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", display_title)[:80]
             st.rerun()
 
-    finally:
-        if video_path:
-            tmpdir = os.path.dirname(video_path)
-            shutil.rmtree(tmpdir, ignore_errors=True)
+    elif web_submitted:
+        st.warning("Please enter a website URL.")
 
-elif submitted:
-    st.warning("Please enter a video URL.")
-
-# ── Pending recipe options box ────────────────────────────────────────────────
-
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PENDING RECIPE SAVE BOX  (shared by both tabs)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if st.session_state.get("pending_recipe"):
     pending = st.session_state["pending_recipe"]
 
