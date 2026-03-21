@@ -55,6 +55,29 @@ def delete_history_entry(url: str) -> None:
 def generate_pdf(title: str, recipe_markdown: str) -> bytes:
     """Render a recipe as a Cooks Illustrated-style PDF."""
 
+    def _sanitize(text: str) -> str:
+        """Replace common Unicode punctuation with Latin-1 equivalents."""
+        replacements = {
+            "\u2022": "-",   # bullet •
+            "\u2013": "-",   # en dash –
+            "\u2014": "-",   # em dash —
+            "\u2018": "'",   # left single quote '
+            "\u2019": "'",   # right single quote '
+            "\u201c": '"',   # left double quote "
+            "\u201d": '"',   # right double quote "
+            "\u2026": "...", # ellipsis …
+            "\u2192": "->",  # right arrow →
+            "\u00bc": "1/4", # ¼
+            "\u00bd": "1/2", # ½
+            "\u00be": "3/4", # ¾
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
+    title = _sanitize(title)
+    recipe_markdown = _sanitize(recipe_markdown)
+
     # ── Colours ──────────────────────────────────────────────────────────────
     NAVY   = (26,  45,  75)   # headings / title bar
     RED    = (175, 30,  30)   # accent (dish-name h1)
@@ -165,7 +188,7 @@ def generate_pdf(title: str, recipe_markdown: str) -> bytes:
             color(RED)
             font("B", 11)
             pdf.set_x(pdf.l_margin + 2)
-            pdf.cell(5, 5.8, "\u2022")       # •
+            pdf.cell(5, 5.8, "-")
             color((0, 0, 0))
             font("", 11)
             pdf.set_x(pdf.l_margin + 7)
