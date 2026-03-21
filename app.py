@@ -68,12 +68,7 @@ def generate_pdf(title: str, recipe_markdown: str) -> bytes:
     pdf.add_page()
     PAGE_W = pdf.w - pdf.l_margin - pdf.r_margin
 
-    # Load Arial from Windows fonts (Unicode support)
-    pdf.add_font("Arial", style="",  fname="C:/Windows/Fonts/arial.ttf")
-    pdf.add_font("Arial", style="B", fname="C:/Windows/Fonts/arialbd.ttf")
-    pdf.add_font("Arial", style="I", fname="C:/Windows/Fonts/ariali.ttf")
-    pdf.add_font("Arial", style="BI",fname="C:/Windows/Fonts/arialbi.ttf")
-    F = "Arial"
+    F = "Helvetica"
 
     def font(style="", size=11):
         pdf.set_font(F, style=style, size=size)
