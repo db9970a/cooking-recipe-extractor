@@ -4,3 +4,4 @@ yt-dlp
 fpdf2
 markdown
 opencv-python-headless
+streamlit-cookies-controller

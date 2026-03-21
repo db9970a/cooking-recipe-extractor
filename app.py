@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import base64
 import shutil
 import tempfile
@@ -10,6 +11,7 @@ import streamlit as st
 import anthropic
 import yt_dlp
 from fpdf import FPDF
+from streamlit_cookies_controller import CookieController
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -18,20 +20,38 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── History file ─────────────────────────────────────────────────────────────
-HISTORY_FILE = os.path.join(os.path.dirname(__file__), "recipe_history.json")
+# ── User identity (cookie-based) ─────────────────────────────────────────────
 
-def load_history() -> list:
-    if os.path.exists(HISTORY_FILE):
+_cookie_controller = CookieController()
+
+def get_user_id() -> str:
+    if "user_id" not in st.session_state:
+        uid = _cookie_controller.get("recipe_user_id")
+        if not uid:
+            uid = str(uuid.uuid4())
+            _cookie_controller.set("recipe_user_id", uid)
+        st.session_state["user_id"] = uid
+    return st.session_state["user_id"]
+
+# ── History file ─────────────────────────────────────────────────────────────
+
+def _history_file(user_id: str) -> str:
+    history_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history")
+    os.makedirs(history_dir, exist_ok=True)
+    return os.path.join(history_dir, f"{user_id}.json")
+
+def load_history(user_id: str) -> list:
+    path = _history_file(user_id)
+    if os.path.exists(path):
         try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return []
     return []
 
-def save_to_history(title: str, url: str, recipe: str, thumbnail: str = "") -> None:
-    history = load_history()
+def save_to_history(user_id: str, title: str, url: str, recipe: str, thumbnail: str = "") -> None:
+    history = load_history(user_id)
     entry = {
         "title": title,
         "url": url,
@@ -39,16 +59,15 @@ def save_to_history(title: str, url: str, recipe: str, thumbnail: str = "") -> N
         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "thumbnail": thumbnail,
     }
-    # Avoid exact duplicates (same URL)
     history = [h for h in history if h.get("url") != url]
     history.insert(0, entry)
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+    with open(_history_file(user_id), "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-def delete_history_entry(url: str) -> None:
-    history = load_history()
+def delete_history_entry(user_id: str, url: str) -> None:
+    history = load_history(user_id)
     history = [h for h in history if h.get("url") != url]
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+    with open(_history_file(user_id), "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 
@@ -309,9 +328,11 @@ with "(approx)". If the video does not appear to be a cooking video, say so clea
 
 # ── Layout: sidebar (history) + main ─────────────────────────────────────────
 
+user_id = get_user_id()
+
 with st.sidebar:
     st.header("📖 Recipe History")
-    history = load_history()
+    history = load_history(user_id)
 
     if not history:
         st.caption("No recipes saved yet. Extract one to get started!")
@@ -342,7 +363,7 @@ with st.sidebar:
                     )
                 with col3:
                     if st.button("🗑️ Delete", key=f"del_{i}", type="secondary"):
-                        delete_history_entry(entry["url"])
+                        delete_history_entry(user_id, entry["url"])
                         st.rerun()
 
 # ── Main area ─────────────────────────────────────────────────────────────────
@@ -496,7 +517,7 @@ if st.session_state.get("pending_recipe"):
         with col3:
             if st.button("📚 Add to Collection", use_container_width=True, type="primary"):
                 save_to_history(
-                    pending["title"], pending["url"],
+                    user_id, pending["title"], pending["url"],
                     pending["recipe"], pending["thumbnail"],
                 )
                 del st.session_state["pending_recipe"]
