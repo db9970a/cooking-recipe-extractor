@@ -349,6 +349,70 @@ Use markdown formatting. If no recipe can be found in the text, say so clearly.
 """
 
 
+def _extract_json_ld_recipe(soup) -> str:
+    """Extract recipe data from JSON-LD structured data if present."""
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            items = data if isinstance(data, list) else [data]
+            # Flatten @graph arrays
+            flat = []
+            for item in items:
+                if "@graph" in item:
+                    flat.extend(item["@graph"])
+                else:
+                    flat.append(item)
+            for item in flat:
+                if item.get("@type") in ("Recipe", "schema:Recipe"):
+                    return _json_ld_recipe_to_text(item)
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    return ""
+
+
+def _json_ld_recipe_to_text(recipe: dict) -> str:
+    """Convert a schema.org Recipe JSON-LD object to readable text."""
+    lines = []
+
+    if name := recipe.get("name"):
+        lines.append(f"Recipe: {name}\n")
+
+    if desc := recipe.get("description"):
+        lines.append(f"Description: {desc}\n")
+
+    if yield_ := recipe.get("recipeYield"):
+        lines.append(f"Yield: {yield_ if isinstance(yield_, str) else ', '.join(str(y) for y in yield_)}")
+
+    for time_key, label in [("prepTime", "Prep"), ("cookTime", "Cook"), ("totalTime", "Total")]:
+        if t := recipe.get(time_key):
+            lines.append(f"{label} time: {t}")
+
+    if ingredients := recipe.get("recipeIngredient"):
+        lines.append("\nIngredients:")
+        for ing in ingredients:
+            lines.append(f"- {ing}")
+
+    if instructions := recipe.get("recipeInstructions"):
+        lines.append("\nInstructions:")
+        if isinstance(instructions, str):
+            lines.append(instructions)
+        else:
+            for i, step in enumerate(instructions, 1):
+                if isinstance(step, str):
+                    lines.append(f"{i}. {step}")
+                elif isinstance(step, dict):
+                    text = step.get("text", step.get("name", ""))
+                    if text:
+                        lines.append(f"{i}. {text}")
+
+    for key in ("notes", "note"):
+        if notes := recipe.get(key):
+            lines.append(f"\nNotes: {notes}")
+            break
+
+    return "\n".join(lines)
+
+
 def fetch_webpage_text(url: str) -> tuple[str, str]:
     """Fetch a webpage and return (page_title, cleaned_text)."""
     headers = {
@@ -356,9 +420,20 @@ def fetch_webpage_text(url: str) -> tuple[str, str]:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
-        )
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
-    resp = requests.get(url, headers=headers, timeout=20)
+    session = requests.Session()
+    resp = session.get(url, headers=headers, timeout=20)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -366,6 +441,11 @@ def fetch_webpage_text(url: str) -> tuple[str, str]:
     # Page title
     title_tag = soup.find("title")
     page_title = title_tag.get_text(strip=True) if title_tag else ""
+
+    # Prefer JSON-LD structured recipe data (schema.org/Recipe) — far more reliable
+    json_ld_text = _extract_json_ld_recipe(soup)
+    if json_ld_text:
+        return page_title, json_ld_text
 
     # Strip boilerplate tags
     for tag in soup(["script", "style", "nav", "header", "footer", "aside",
@@ -562,6 +642,16 @@ with tab_web:
                 page_title, page_text = fetch_webpage_text(web_url)
                 st.write(f"Page loaded ({len(page_text):,} characters). Looking for the recipe...")
                 status.update(label="Page ready!", state="complete")
+            except requests.exceptions.HTTPError as e:
+                status.update(label="Could not load page", state="error")
+                if e.response is not None and e.response.status_code == 403:
+                    st.error(
+                        f"The website blocked the request (403 Forbidden). "
+                        f"This site may require a login or uses bot-detection that prevents automated access."
+                    )
+                else:
+                    st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
+                st.stop()
             except requests.exceptions.RequestException as e:
                 status.update(label="Could not load page", state="error")
                 st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
