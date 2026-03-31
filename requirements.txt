@@ -7,3 +7,4 @@ opencv-python-headless
 streamlit-cookies-controller
 requests
 beautifulsoup4
+streamlit-javascript

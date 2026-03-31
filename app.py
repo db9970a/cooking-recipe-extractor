@@ -35,26 +35,34 @@ def get_user_id() -> str:
         st.session_state["user_id"] = uid
     return st.session_state["user_id"]
 
-# ── History file ─────────────────────────────────────────────────────────────
+# ── History (browser localStorage) ───────────────────────────────────────────
+# Stored in the user's browser so it survives server redeploys and works across
+# devices/sessions without needing a server-side database.
 
-def _history_file(user_id: str) -> str:
-    history_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history")
-    os.makedirs(history_dir, exist_ok=True)
-    return os.path.join(history_dir, f"{user_id}.json")
+from streamlit_javascript import st_javascript
 
-def load_history(user_id: str) -> list:
-    path = _history_file(user_id)
-    if os.path.exists(path):
+_LS_KEY = "recipe_history_v1"
+
+def _write_ls(history: list) -> None:
+    """Write history list to localStorage, encoded as base64 to avoid JS escaping issues."""
+    st.session_state["_history"] = history
+    b64 = base64.b64encode(json.dumps(history, ensure_ascii=False).encode()).decode()
+    st_javascript(f"localStorage.setItem('{_LS_KEY}', atob('{b64}')); 1")
+
+def load_history(_user_id: str = "") -> list:
+    """Load history from localStorage, falling back to in-session cache."""
+    raw = st_javascript(f"localStorage.getItem('{_LS_KEY}')")
+    if raw and raw != 0:
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            history = json.loads(raw)
+            st.session_state["_history"] = history
+            return history
         except Exception:
             pass
-    # Fall back to in-session cache (e.g. read-only filesystem)
-    return st.session_state.get("_history_cache", [])
+    return st.session_state.get("_history", [])
 
-def save_to_history(user_id: str, title: str, url: str, recipe: str, thumbnail: str = "") -> None:
-    history = load_history(user_id)
+def save_to_history(_user_id: str, title: str, url: str, recipe: str, thumbnail: str = "") -> None:
+    history = list(st.session_state.get("_history", []))
     entry = {
         "title": title,
         "url": url,
@@ -64,17 +72,11 @@ def save_to_history(user_id: str, title: str, url: str, recipe: str, thumbnail: 
     }
     history = [h for h in history if h.get("url") != url]
     history.insert(0, entry)
-    path = _history_file(user_id)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
-    # Keep in-session cache in sync so sidebar updates even if file read fails
-    st.session_state["_history_cache"] = history
+    _write_ls(history)
 
-def delete_history_entry(user_id: str, url: str) -> None:
-    history = load_history(user_id)
-    history = [h for h in history if h.get("url") != url]
-    with open(_history_file(user_id), "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+def delete_history_entry(_user_id: str, url: str) -> None:
+    history = [h for h in st.session_state.get("_history", []) if h.get("url") != url]
+    _write_ls(history)
 
 
 def generate_pdf(title: str, recipe_markdown: str) -> bytes:
