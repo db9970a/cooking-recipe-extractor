@@ -654,7 +654,11 @@ with tab_web:
                 st.stop()
             except requests.exceptions.RequestException as e:
                 status.update(label="Could not load page", state="error")
-                st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
+                st.error(f"Unable to fetch the page: {type(e).__name__}: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
+                st.stop()
+            except Exception as e:
+                status.update(label="Could not load page", state="error")
+                st.error(f"Unexpected error fetching page: {type(e).__name__}: {e}")
                 st.stop()
 
         client = anthropic.Anthropic(api_key=api_key)
