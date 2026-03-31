@@ -49,8 +49,9 @@ def load_history(user_id: str) -> list:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            return []
-    return []
+            pass
+    # Fall back to in-session cache (e.g. read-only filesystem)
+    return st.session_state.get("_history_cache", [])
 
 def save_to_history(user_id: str, title: str, url: str, recipe: str, thumbnail: str = "") -> None:
     history = load_history(user_id)
@@ -63,8 +64,11 @@ def save_to_history(user_id: str, title: str, url: str, recipe: str, thumbnail: 
     }
     history = [h for h in history if h.get("url") != url]
     history.insert(0, entry)
-    with open(_history_file(user_id), "w", encoding="utf-8") as f:
+    path = _history_file(user_id)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+    # Keep in-session cache in sync so sidebar updates even if file read fails
+    st.session_state["_history_cache"] = history
 
 def delete_history_entry(user_id: str, url: str) -> None:
     history = load_history(user_id)
@@ -744,10 +748,14 @@ if st.session_state.get("pending_recipe"):
             )
         with col3:
             if st.button("📚 Add to Collection", use_container_width=True, type="primary"):
-                save_to_history(
-                    user_id, pending["title"], pending["url"],
-                    pending["recipe"], pending["thumbnail"],
-                )
-                del st.session_state["pending_recipe"]
-                del st.session_state["recipe_filename"]
-                st.rerun()
+                try:
+                    save_to_history(
+                        user_id, pending["title"], pending["url"],
+                        pending["recipe"], pending["thumbnail"],
+                    )
+                    st.session_state.pop("pending_recipe", None)
+                    st.session_state.pop("recipe_filename", None)
+                    st.toast("Recipe saved to your collection!", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to save recipe: {type(e).__name__}: {e}")
