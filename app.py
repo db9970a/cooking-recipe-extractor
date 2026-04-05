@@ -872,6 +872,19 @@ def show_recipe_dialog() -> None:
         return
     entry = history[idx]
 
+    # Handle pending scale (flag pattern — avoids st.rerun() closing the dialog)
+    if st.session_state.get("_dlg_scale_pending"):
+        client = get_anthropic_client()
+        if client:
+            _sf = st.session_state.pop("_dlg_scale_from_val", 4)
+            _st = st.session_state.pop("_dlg_scale_to_val", 4)
+            with st.spinner(f"Scaling from {_sf} to {_st} servings..."):
+                scaled = scale_recipe(client, entry["recipe"], _sf, _st)
+            update_history_entry(entry["url"], recipe=scaled)
+            history = st.session_state.get("_history", [])
+            entry = history[idx]
+        st.session_state.pop("_dlg_scale_pending", None)
+
     # ── Title (editable) ─────────────────────────────────────
     st.text_input("Title", key="dlg_title", label_visibility="collapsed",
                   help="Edit to rename this recipe")
@@ -907,6 +920,21 @@ def show_recipe_dialog() -> None:
     # ── Recipe card ───────────────────────────────────────────
     recipe_html = md_lib.markdown(entry["recipe"], extensions=["nl2br"])
     st.markdown(f'<div class="recipe-card">{recipe_html}</div>', unsafe_allow_html=True)
+    # ── Scale recipe ─────────────────────────────────────────
+    with st.expander("⚖️ Scale Recipe"):
+        col_sf, col_st = st.columns(2)
+        with col_sf:
+            dlg_from = st.number_input("Current servings", min_value=1, value=4, key="dlg_scale_from")
+        with col_st:
+            dlg_to = st.number_input("Scale to", min_value=1, value=4, key="dlg_scale_to")
+        if st.button("Scale Recipe", key="dlg_btn_scale"):
+            if int(dlg_from) == int(dlg_to):
+                st.info("From and to servings are the same — nothing to scale.")
+            else:
+                st.session_state["_dlg_scale_pending"] = True
+                st.session_state["_dlg_scale_from_val"] = int(dlg_from)
+                st.session_state["_dlg_scale_to_val"] = int(dlg_to)
+
     st.divider()
 
     # ── Notes ────────────────────────────────────────────────
@@ -1065,8 +1093,9 @@ with st.sidebar:
                         st.session_state["dlg_title"] = entry.get("title", "")
                         st.session_state["dlg_notes"] = entry.get("notes", "")
                         st.session_state["dlg_rating"] = STARS[entry.get("rating", 0)]
-                        # Clear shopping list from any previous dialog
-                        for k in ("dlg_shopping_list", "_dlg_shop_pending"):
+                        # Clear transient state from any previous dialog
+                        for k in ("dlg_shopping_list", "_dlg_shop_pending",
+                                  "_dlg_scale_pending", "_dlg_scale_from_val", "_dlg_scale_to_val"):
                             st.session_state.pop(k, None)
                         show_recipe_dialog()
                 with col_del:
