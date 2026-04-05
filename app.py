@@ -17,7 +17,7 @@ import anthropic
 import yt_dlp
 from bs4 import BeautifulSoup
 from fpdf import FPDF
-from streamlit_javascript import st_javascript
+from supabase import create_client, Client as SupabaseClient
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -167,8 +167,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_LS_KEY = "recipe_history_v1"
-
 STARS = ["☆☆☆☆☆", "★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★"]
 
 RECIPE_TAGS = [
@@ -217,33 +215,49 @@ def _find_unicode_font() -> tuple[str, dict[str, str]] | None:
 
 _UNICODE_FONT = _find_unicode_font()
 
-# ── History (browser localStorage) ────────────────────────────────────────────
-def _write_ls(history: list) -> None:
-    """Write history list to localStorage with UTF-8-safe base64 encoding."""
-    st.session_state["_history"] = history
-    b64 = base64.b64encode(json.dumps(history, ensure_ascii=False).encode()).decode()
-    # TextDecoder handles UTF-8 correctly; bare atob() produces Latin-1 only
-    st_javascript(
-        f"localStorage.setItem('{_LS_KEY}', "
-        f"new TextDecoder().decode(Uint8Array.from(atob('{b64}'), c => c.charCodeAt(0)))); 1"
-    )
+# ── Supabase storage ──────────────────────────────────────────────────────────
+@st.cache_resource
+def get_supabase_client() -> SupabaseClient | None:
+    try:
+        return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    except Exception:
+        return None
+
+def _get_user_id() -> str:
+    try:
+        return st.secrets["RECIPE_USER_ID"]
+    except Exception:
+        return "default"
 
 def load_history() -> list:
-    raw = st_javascript(f"localStorage.getItem('{_LS_KEY}')")
-    if raw and raw != 0:
-        try:
-            history = json.loads(raw)
-            st.session_state["_history"] = history
-            return history
-        except Exception:
-            pass
-    return st.session_state.get("_history", [])
+    """Fetch history from Supabase once per session; use in-memory cache thereafter."""
+    if st.session_state.get("_history_loaded"):
+        return st.session_state.get("_history", [])
+
+    client = get_supabase_client()
+    if not client:
+        st.session_state["_history_loaded"] = True
+        return []
+    try:
+        result = (
+            client.table("recipes")
+            .select("data")
+            .eq("user_id", _get_user_id())
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        history = [row["data"] for row in result.data]
+        st.session_state["_history"] = history
+        st.session_state["_history_loaded"] = True
+        return history
+    except Exception:
+        st.session_state["_history_loaded"] = True
+        return st.session_state.get("_history", [])
 
 def save_to_history(
     title: str, url: str, recipe: str, thumbnail: str = "",
     tags: list[str] | None = None, rating: int = 0,
 ) -> None:
-    history = list(st.session_state.get("_history", []))
     entry = {
         "title": title,
         "url": url,
@@ -254,9 +268,21 @@ def save_to_history(
         "rating": rating,
         "notes": "",
     }
-    history = [h for h in history if h.get("url") != url]
+    client = get_supabase_client()
+    if client:
+        client.table("recipes").upsert(
+            {
+                "user_id": _get_user_id(),
+                "url": url,
+                "data": entry,
+                "updated_at": datetime.datetime.utcnow().isoformat(),
+            },
+            on_conflict="user_id,url",
+        ).execute()
+    # Update in-memory cache
+    history = [h for h in st.session_state.get("_history", []) if h.get("url") != url]
     history.insert(0, entry)
-    _write_ls(history)
+    st.session_state["_history"] = history
 
 def update_history_entry(url: str, **kwargs) -> None:
     """Patch specific fields of a saved recipe entry by URL."""
@@ -264,12 +290,21 @@ def update_history_entry(url: str, **kwargs) -> None:
     for entry in history:
         if entry.get("url") == url:
             entry.update(kwargs)
+            client = get_supabase_client()
+            if client:
+                client.table("recipes").update(
+                    {"data": entry, "updated_at": datetime.datetime.utcnow().isoformat()}
+                ).eq("user_id", _get_user_id()).eq("url", url).execute()
             break
-    _write_ls(history)
+    st.session_state["_history"] = history
 
 def delete_history_entry(url: str) -> None:
-    history = [h for h in load_history() if h.get("url") != url]
-    _write_ls(history)
+    client = get_supabase_client()
+    if client:
+        client.table("recipes").delete().eq("user_id", _get_user_id()).eq("url", url).execute()
+    st.session_state["_history"] = [
+        h for h in st.session_state.get("_history", []) if h.get("url") != url
+    ]
 
 
 # ── PDF generation ────────────────────────────────────────────────────────────
@@ -899,6 +934,10 @@ def show_recipe_dialog() -> None:
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("📖 Recipe History")
+
+    if get_supabase_client() is None:
+        st.warning("Database not configured. Add SUPABASE_URL, SUPABASE_KEY, and RECIPE_USER_ID to Streamlit secrets.", icon="⚠️")
+
     history = load_history()
 
     if not history:

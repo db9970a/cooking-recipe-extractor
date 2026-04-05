@@ -1,5 +1,6 @@
 anthropic
 streamlit
+supabase
 yt-dlp
 fpdf2
 opencv-python-headless
@@ -7,4 +8,3 @@ requests
 cloudscraper
 markdown
 beautifulsoup4
-streamlit-javascript
