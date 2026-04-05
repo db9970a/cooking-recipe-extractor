@@ -6,9 +6,11 @@ import shutil
 import tempfile
 import datetime
 import cv2
+import ssl
 import urllib3
 import requests
 import cloudscraper
+from requests.adapters import HTTPAdapter
 import streamlit as st
 import anthropic
 import yt_dlp
@@ -501,6 +503,29 @@ _FETCH_HEADERS = {
 }
 
 
+class _NoSSLAdapter(HTTPAdapter):
+    """Requests adapter that disables SSL verification without triggering
+    Python 3.10+'s 'check_hostname + CERT_NONE' conflict."""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        super().init_poolmanager(*args, **kwargs)
+
+
+def _no_ssl_session() -> requests.Session:
+    s = requests.Session()
+    s.mount("https://", _NoSSLAdapter())
+    return s
+
+
+def _no_ssl_scraper() -> cloudscraper.CloudScraper:
+    s = cloudscraper.create_scraper()
+    s.mount("https://", _NoSSLAdapter())
+    return s
+
+
 def _get_html(url: str) -> str:
     """
     Fetch raw HTML using progressively more permissive strategies:
@@ -531,17 +556,17 @@ def _get_html(url: str) -> str:
     except Exception:
         pass
 
-    # Strategy 3: requests with SSL verification disabled
+    # Strategy 3: requests with SSL disabled via custom adapter
     try:
-        r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20, verify=False)
+        r = _no_ssl_session().get(url, headers=_FETCH_HEADERS, timeout=20)
         r.raise_for_status()
         return r.text
     except requests.exceptions.HTTPError as e:
         if e.response is None or e.response.status_code != 403:
             raise
 
-    # Strategy 4: cloudscraper + SSL disabled (sites with both problems)
-    r = cloudscraper.create_scraper().get(url, timeout=20, verify=False)
+    # Strategy 4: cloudscraper + SSL disabled (bad TLS config AND bot detection)
+    r = _no_ssl_scraper().get(url, timeout=20)
     r.raise_for_status()
     return r.text
 
