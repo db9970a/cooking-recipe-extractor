@@ -736,7 +736,17 @@ def _get_html(url: str) -> str:
         if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 2: cloudscraper (Cloudflare JS challenge / 403/429 bypass)
+    # Strategy 2: Google cache (bypasses datacenter IP blocks entirely)
+    time.sleep(1)
+    try:
+        cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}&hl=en"
+        r = requests.Session().get(cache_url, headers=_FETCH_HEADERS, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except Exception:
+        pass
+
+    # Strategy 3: cloudscraper (Cloudflare JS challenge / 403/429 bypass)
     time.sleep(1)
     try:
         r = cloudscraper.create_scraper().get(url, timeout=20)
@@ -745,7 +755,7 @@ def _get_html(url: str) -> str:
     except Exception:
         pass
 
-    # Strategy 3: requests with SSL disabled via custom adapter
+    # Strategy 4: requests with SSL disabled via custom adapter
     time.sleep(1)
     try:
         r = _no_ssl_session().get(url, headers=_FETCH_HEADERS, timeout=20)
@@ -755,7 +765,7 @@ def _get_html(url: str) -> str:
         if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 4: cloudscraper + SSL disabled (bad TLS config AND bot detection)
+    # Strategy 5: cloudscraper + SSL disabled (bad TLS config AND bot detection)
     time.sleep(1)
     r = _no_ssl_scraper().get(url, timeout=20)
     r.raise_for_status()
