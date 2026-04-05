@@ -1211,8 +1211,16 @@ with tab_web:
         )
         web_submitted = st.form_submit_button("Extract Recipe from Website", type="primary", use_container_width=True)
 
+    # Restore blocked URL for paste fallback across reruns
+    if "web_blocked_url" not in st.session_state:
+        st.session_state["web_blocked_url"] = ""
+
+    page_title, page_text = "", ""
+    fetch_failed = False
+
     if web_submitted and web_url.strip():
         web_url = web_url.strip()
+        st.session_state["web_blocked_url"] = ""  # reset any previous blocked state
 
         client = get_anthropic_client()
         if not client:
@@ -1225,65 +1233,94 @@ with tab_web:
                 page_title, page_text = fetch_webpage_text(web_url)
                 st.write(f"Page loaded ({len(page_text):,} characters). Looking for the recipe...")
                 status.update(label="Page ready!", state="complete")
-            except requests.exceptions.HTTPError as e:
-                status.update(label="Could not load page", state="error")
-                st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
-                st.stop()
-            except requests.exceptions.RequestException as e:
-                status.update(label="Could not load page", state="error")
-                st.error(f"Unable to fetch the page: {type(e).__name__}: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
-                st.stop()
             except Exception as e:
                 status.update(label="Could not load page", state="error")
-                st.error(f"Unexpected error fetching page: {type(e).__name__}: {e}")
-                st.stop()
-
-        st.markdown("---")
-        if page_title:
-            st.subheader(f"Recipe from: {page_title}")
-
-        recipe_placeholder = st.empty()
-        full_recipe = ""
-
-        with st.spinner("Claude is reading the page and writing the recipe..."):
-            try:
-                with client.messages.stream(
-                    model="claude-sonnet-4-6",
-                    max_tokens=4096,
-                    system=WEBSITE_SYSTEM_PROMPT,
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            f"Here is the text content scraped from this recipe page:\n"
-                            f"URL: {web_url}\n\n"
-                            f"{page_text}"
-                        ),
-                    }],
-                ) as stream:
-                    for text_chunk in stream.text_stream:
-                        full_recipe += text_chunk
-                        recipe_placeholder.markdown(full_recipe + "▌")
-                recipe_placeholder.markdown(full_recipe)
-            except anthropic.AuthenticationError:
-                st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
-            except anthropic.RateLimitError:
-                st.error("Rate limit reached. Please wait a moment and try again.")
-            except anthropic.APIError as e:
-                st.error(f"API error: {e}")
-
-        if full_recipe:
-            display_title = page_title or web_url
-            st.session_state["pending_recipe"] = {
-                "recipe": full_recipe,
-                "title": display_title,
-                "url": web_url,
-                "thumbnail": "",
-            }
-            st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", display_title)[:80]
-            st.rerun()
+                fetch_failed = True
+                st.session_state["web_blocked_url"] = web_url
 
     elif web_submitted:
         st.warning("Please enter a website URL.")
+
+    # Paste fallback — shown when scraping fails or user previously hit a blocked site
+    blocked_url = st.session_state.get("web_blocked_url", "")
+    if fetch_failed or blocked_url:
+        if fetch_failed:
+            st.warning(
+                "**This site blocks automated access** (bot protection or rate limiting). "
+                "You can still extract the recipe by pasting the page text below."
+            )
+        with st.form("web_paste_form"):
+            st.markdown(
+                '<p style="color:#999;font-size:0.92rem;margin-bottom:0.4rem;">'
+                "Open the recipe page in your browser, select all text (Ctrl+A / Cmd+A), copy it, and paste here:</p>",
+                unsafe_allow_html=True,
+            )
+            pasted_text = st.text_area("Paste recipe page text", height=220, label_visibility="collapsed",
+                                       placeholder="Paste the full page text here…")
+            paste_submitted = st.form_submit_button("Extract Recipe from Pasted Text", type="primary", use_container_width=True)
+
+        if paste_submitted and pasted_text.strip():
+            page_text = pasted_text.strip()
+            page_title = ""
+            web_url = blocked_url or "pasted-text"
+            st.session_state["web_blocked_url"] = ""
+        elif paste_submitted:
+            st.warning("Please paste some recipe text first.")
+            st.stop()
+        elif not page_text:
+            st.stop()
+
+    if not page_text:
+        st.stop()
+
+    client = get_anthropic_client()
+    if not client:
+        st.error("ANTHROPIC_API_KEY environment variable is not set.")
+        st.stop()
+
+    st.markdown("---")
+    if page_title:
+        st.subheader(f"Recipe from: {page_title}")
+
+    recipe_placeholder = st.empty()
+    full_recipe = ""
+
+    with st.spinner("Claude is reading the page and writing the recipe..."):
+        try:
+            with client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=4096,
+                system=WEBSITE_SYSTEM_PROMPT,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Here is the text content scraped from this recipe page:\n"
+                        f"URL: {web_url}\n\n"
+                        f"{page_text}"
+                    ),
+                }],
+            ) as stream:
+                for text_chunk in stream.text_stream:
+                    full_recipe += text_chunk
+                    recipe_placeholder.markdown(full_recipe + "▌")
+            recipe_placeholder.markdown(full_recipe)
+        except anthropic.AuthenticationError:
+            st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
+        except anthropic.RateLimitError:
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        except anthropic.APIError as e:
+            st.error(f"API error: {e}")
+
+    if full_recipe:
+        display_title = page_title or web_url
+        st.session_state["pending_recipe"] = {
+            "recipe": full_recipe,
+            "title": display_title,
+            "url": web_url,
+            "thumbnail": "",
+        }
+        st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", display_title)[:80]
+        st.rerun()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
