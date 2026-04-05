@@ -736,13 +736,18 @@ def _get_html(url: str) -> str:
         if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 2: Google cache (bypasses datacenter IP blocks entirely)
+    # Strategy 2: Wayback Machine (bypasses datacenter IP blocks entirely)
     time.sleep(1)
     try:
-        cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}&hl=en"
-        r = requests.Session().get(cache_url, headers=_FETCH_HEADERS, timeout=20)
-        r.raise_for_status()
-        return r.text
+        avail = requests.get(
+            f"https://archive.org/wayback/available?url={url}",
+            timeout=10,
+        ).json()
+        snapshot = avail.get("archived_snapshots", {}).get("closest", {})
+        if snapshot.get("available"):
+            r = requests.Session().get(snapshot["url"], headers=_FETCH_HEADERS, timeout=20)
+            r.raise_for_status()
+            return r.text
     except Exception:
         pass
 
