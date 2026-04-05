@@ -872,6 +872,17 @@ def show_recipe_dialog() -> None:
         return
     entry = history[idx]
 
+    # ── Title (editable) ─────────────────────────────────────
+    st.text_input("Title", key="dlg_title", label_visibility="collapsed",
+                  help="Edit to rename this recipe")
+    if entry.get("url") and entry["url"] not in ("pasted-text", ""):
+        st.markdown(
+            f'<p style="font-size:0.8rem;color:#aaa;margin:-6px 0 10px 0;">'
+            f'Source: <a href="{entry["url"]}" target="_blank" '
+            f'style="color:#aaa;">{entry["url"]}</a></p>',
+            unsafe_allow_html=True,
+        )
+
     # ── Header ───────────────────────────────────────────────
     if entry.get("thumbnail"):
         st.image(entry["thumbnail"], use_container_width=True)
@@ -912,9 +923,11 @@ def show_recipe_dialog() -> None:
     st.markdown("**Rating**")
     st.select_slider("Rating", options=STARS, key="dlg_rating", label_visibility="collapsed")
 
-    if st.button("💾 Save Notes & Rating", type="primary", key="dlg_save"):
+    if st.button("💾 Save Changes", type="primary", key="dlg_save"):
+        new_title = st.session_state.get("dlg_title", "").strip() or entry["title"]
         update_history_entry(
             entry["url"],
+            title=new_title,
             notes=st.session_state.get("dlg_notes", ""),
             rating=STARS.index(st.session_state.get("dlg_rating", STARS[0])),
         )
@@ -1049,6 +1062,7 @@ with st.sidebar:
                     if st.button("View", key=f"view_{idx}", use_container_width=True):
                         st.session_state["_dialog_idx"] = idx
                         # Seed dialog widgets with current entry values
+                        st.session_state["dlg_title"] = entry.get("title", "")
                         st.session_state["dlg_notes"] = entry.get("notes", "")
                         st.session_state["dlg_rating"] = STARS[entry.get("rating", 0)]
                         # Clear shopping list from any previous dialog
