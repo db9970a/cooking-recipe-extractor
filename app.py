@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import datetime
 import cv2
+import urllib3
 import requests
 import cloudscraper
 import streamlit as st
@@ -481,37 +482,62 @@ def _json_ld_recipe_to_text(recipe: dict) -> str:
     return "\n".join(lines)
 
 
-def fetch_webpage_text(url: str) -> tuple[str, str]:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-    }
+_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
+
+
+def _get_html(url: str) -> str:
+    """
+    Fetch raw HTML using progressively more permissive strategies:
+      1. Standard requests (fast, works for most sites)
+      2. cloudscraper (bypasses Cloudflare / 403 bot-detection)
+      3. requests with SSL verification disabled (fixes handshake failures)
+    Any non-SSL, non-403 HTTP error is raised immediately.
+    """
+    # Strategy 1: standard requests
     try:
-        resp = requests.Session().get(url, headers=headers, timeout=20)
-        resp.raise_for_status()
+        r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except requests.exceptions.SSLError:
+        pass  # fall through to strategies 2 & 3
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 403:
-            # Many recipe sites use Cloudflare or similar bot detection.
-            # Fall back to cloudscraper which handles JS challenges.
-            scraper = cloudscraper.create_scraper()
-            resp = scraper.get(url, timeout=20)
-            resp.raise_for_status()
-        else:
-            raise
-    soup = BeautifulSoup(resp.text, "html.parser")
+        if e.response is None or e.response.status_code != 403:
+            raise  # genuine error — surface it
+
+    # Strategy 2: cloudscraper (handles Cloudflare JS challenges and 403s)
+    try:
+        r = cloudscraper.create_scraper().get(url, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except Exception:
+        pass  # fall through to strategy 3
+
+    # Strategy 3: disable SSL verification (fixes servers with bad TLS configs)
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20, verify=False)
+    r.raise_for_status()
+    return r.text
+
+
+def fetch_webpage_text(url: str) -> tuple[str, str]:
+    html = _get_html(url)
+    soup = BeautifulSoup(html, "html.parser")
     title_tag = soup.find("title")
     page_title = title_tag.get_text(strip=True) if title_tag else ""
     json_ld_text = _extract_json_ld_recipe(soup)
