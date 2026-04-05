@@ -1288,57 +1288,54 @@ with tab_web:
         elif not page_text:
             st.stop()
 
-    if not page_text:
-        st.stop()
+    if page_text:
+        client = get_anthropic_client()
+        if not client:
+            st.error("ANTHROPIC_API_KEY environment variable is not set.")
+        else:
+            st.markdown("---")
+            if page_title:
+                st.subheader(f"Recipe from: {page_title}")
 
-    client = get_anthropic_client()
-    if not client:
-        st.error("ANTHROPIC_API_KEY environment variable is not set.")
-        st.stop()
+            recipe_placeholder = st.empty()
+            full_recipe = ""
 
-    st.markdown("---")
-    if page_title:
-        st.subheader(f"Recipe from: {page_title}")
+            with st.spinner("Claude is reading the page and writing the recipe..."):
+                try:
+                    with client.messages.stream(
+                        model="claude-sonnet-4-6",
+                        max_tokens=4096,
+                        system=WEBSITE_SYSTEM_PROMPT,
+                        messages=[{
+                            "role": "user",
+                            "content": (
+                                f"Here is the text content scraped from this recipe page:\n"
+                                f"URL: {web_url}\n\n"
+                                f"{page_text}"
+                            ),
+                        }],
+                    ) as stream:
+                        for text_chunk in stream.text_stream:
+                            full_recipe += text_chunk
+                            recipe_placeholder.markdown(full_recipe + "▌")
+                    recipe_placeholder.markdown(full_recipe)
+                except anthropic.AuthenticationError:
+                    st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
+                except anthropic.RateLimitError:
+                    st.error("Rate limit reached. Please wait a moment and try again.")
+                except anthropic.APIError as e:
+                    st.error(f"API error: {e}")
 
-    recipe_placeholder = st.empty()
-    full_recipe = ""
-
-    with st.spinner("Claude is reading the page and writing the recipe..."):
-        try:
-            with client.messages.stream(
-                model="claude-sonnet-4-6",
-                max_tokens=4096,
-                system=WEBSITE_SYSTEM_PROMPT,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Here is the text content scraped from this recipe page:\n"
-                        f"URL: {web_url}\n\n"
-                        f"{page_text}"
-                    ),
-                }],
-            ) as stream:
-                for text_chunk in stream.text_stream:
-                    full_recipe += text_chunk
-                    recipe_placeholder.markdown(full_recipe + "▌")
-            recipe_placeholder.markdown(full_recipe)
-        except anthropic.AuthenticationError:
-            st.error("Invalid API key. Please check your ANTHROPIC_API_KEY.")
-        except anthropic.RateLimitError:
-            st.error("Rate limit reached. Please wait a moment and try again.")
-        except anthropic.APIError as e:
-            st.error(f"API error: {e}")
-
-    if full_recipe and "#" in full_recipe:
-        display_title = page_title or web_url
-        st.session_state["pending_recipe"] = {
-            "recipe": full_recipe,
-            "title": display_title,
-            "url": web_url,
-            "thumbnail": "",
-        }
-        st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", display_title)[:80]
-        st.rerun()
+            if full_recipe and "#" in full_recipe:
+                display_title = page_title or web_url
+                st.session_state["pending_recipe"] = {
+                    "recipe": full_recipe,
+                    "title": display_title,
+                    "url": web_url,
+                    "thumbnail": "",
+                }
+                st.session_state["recipe_filename"] = re.sub(r'[\\/*?:"<>|]', "", display_title)[:80]
+                st.rerun()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
