@@ -504,33 +504,44 @@ _FETCH_HEADERS = {
 def _get_html(url: str) -> str:
     """
     Fetch raw HTML using progressively more permissive strategies:
-      1. Standard requests (fast, works for most sites)
-      2. cloudscraper (bypasses Cloudflare / 403 bot-detection)
-      3. requests with SSL verification disabled (fixes handshake failures)
+      1. Standard requests
+      2. cloudscraper (bypasses Cloudflare / bot-detection)
+      3. requests with SSL verification disabled (fixes bad TLS configs)
+      4. cloudscraper with SSL disabled (handles both problems at once)
     Any non-SSL, non-403 HTTP error is raised immediately.
     """
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
     # Strategy 1: standard requests
     try:
         r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20)
         r.raise_for_status()
         return r.text
     except requests.exceptions.SSLError:
-        pass  # fall through to strategies 2 & 3
+        pass
     except requests.exceptions.HTTPError as e:
         if e.response is None or e.response.status_code != 403:
-            raise  # genuine error — surface it
+            raise
 
-    # Strategy 2: cloudscraper (handles Cloudflare JS challenges and 403s)
+    # Strategy 2: cloudscraper (Cloudflare JS challenge / 403 bypass)
     try:
         r = cloudscraper.create_scraper().get(url, timeout=20)
         r.raise_for_status()
         return r.text
     except Exception:
-        pass  # fall through to strategy 3
+        pass
 
-    # Strategy 3: disable SSL verification (fixes servers with bad TLS configs)
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20, verify=False)
+    # Strategy 3: requests with SSL verification disabled
+    try:
+        r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20, verify=False)
+        r.raise_for_status()
+        return r.text
+    except requests.exceptions.HTTPError as e:
+        if e.response is None or e.response.status_code != 403:
+            raise
+
+    # Strategy 4: cloudscraper + SSL disabled (sites with both problems)
+    r = cloudscraper.create_scraper().get(url, timeout=20, verify=False)
     r.raise_for_status()
     return r.text
 
