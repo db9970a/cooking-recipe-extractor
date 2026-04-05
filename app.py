@@ -713,6 +713,8 @@ def _get_html(url: str) -> str:
     """
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    _RETRY_CODES = {403, 429}
+
     # Strategy 1: standard requests
     try:
         r = requests.Session().get(url, headers=_FETCH_HEADERS, timeout=20)
@@ -721,10 +723,10 @@ def _get_html(url: str) -> str:
     except requests.exceptions.SSLError:
         pass
     except requests.exceptions.HTTPError as e:
-        if e.response is None or e.response.status_code != 403:
+        if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 2: cloudscraper (Cloudflare JS challenge / 403 bypass)
+    # Strategy 2: cloudscraper (Cloudflare JS challenge / 403/429 bypass)
     try:
         r = cloudscraper.create_scraper().get(url, timeout=20)
         r.raise_for_status()
@@ -738,7 +740,7 @@ def _get_html(url: str) -> str:
         r.raise_for_status()
         return r.text
     except requests.exceptions.HTTPError as e:
-        if e.response is None or e.response.status_code != 403:
+        if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
     # Strategy 4: cloudscraper + SSL disabled (bad TLS config AND bot detection)
