@@ -745,7 +745,11 @@ def _get_html(url: str) -> str:
             timeout=30,
         )
         r.raise_for_status()
-        return r.text
+        # Jina returns 200 even for blocked pages — skip if it's an error page
+        _low = r.text.lower()
+        _blocked = any(tok in _low for tok in ("429", "too many requests", "security checkpoint", "access denied", "403 forbidden"))
+        if not _blocked:
+            return r.text
     except Exception:
         pass
 
@@ -1311,7 +1315,7 @@ with tab_web:
         except anthropic.APIError as e:
             st.error(f"API error: {e}")
 
-    if full_recipe:
+    if full_recipe and "#" in full_recipe:
         display_title = page_title or web_url
         st.session_state["pending_recipe"] = {
             "recipe": full_recipe,
