@@ -11,6 +11,7 @@ import urllib3
 import requests
 import cloudscraper
 from requests.adapters import HTTPAdapter
+import markdown as md_lib
 import streamlit as st
 import anthropic
 import yt_dlp
@@ -106,6 +107,62 @@ st.markdown("""
 [data-testid="stMainBlockContainer"] {
     padding-top: 1.5rem;
 }
+
+/* ── Sidebar thumbnail images ─────────────────────────────────────────────── */
+[data-testid="stSidebar"] .stImage img {
+    height: 110px;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+    margin-bottom: 0.1rem;
+}
+
+/* ── Recipe card (dialog) ─────────────────────────────────────────────────── */
+.recipe-card {
+    background: #FFFCFA;
+    border: 1px solid #EDE0D8;
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    line-height: 1.85;
+    font-size: 0.96rem;
+    color: #1C1C1C;
+    margin: 0.25rem 0 1rem 0;
+}
+.recipe-card h1 {
+    color: #C0392B;
+    font-size: 1.5rem;
+    border-bottom: 2px solid #C0392B;
+    padding-bottom: 0.3rem;
+    margin-bottom: 0.75rem;
+}
+.recipe-card h2 {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #1C1C1C;
+    background: #F5EDE8;
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 4px;
+    margin: 1.2rem 0 0.5rem 0;
+}
+.recipe-card h3 {
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    margin: 1rem 0 0.35rem 0;
+}
+.recipe-card ul, .recipe-card ol {
+    padding-left: 1.4rem;
+}
+.recipe-card li {
+    margin-bottom: 0.35rem;
+}
+.recipe-card strong { color: #1C1C1C; }
+.recipe-card hr { border-color: #EDE0D8; margin: 1rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -733,14 +790,30 @@ def show_recipe_dialog() -> None:
         return
     entry = history[idx]
 
+    # ── Header ───────────────────────────────────────────────
     if entry.get("thumbnail"):
         st.image(entry["thumbnail"], use_container_width=True)
-    st.caption(f"Saved {entry['date']}")
 
+    meta_parts = [f"🗓 {entry['date']}"]
+    if entry.get("rating"):
+        meta_parts.append(STARS[entry["rating"]])
     if entry.get("tags"):
-        st.caption("  ".join(f"`{t}`" for t in entry["tags"]))
+        tag_chips = " ".join(
+            f'<span style="background:#F5EDE8;color:#C0392B;padding:2px 8px;'
+            f'border-radius:4px;font-size:0.78rem;">{t}</span>'
+            for t in entry["tags"]
+        )
+        meta_parts.append(tag_chips)
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
+        f'margin-bottom:0.75rem;font-size:0.85rem;color:#999;">'
+        + "  ·  ".join(meta_parts) + "</div>",
+        unsafe_allow_html=True,
+    )
 
-    st.markdown(entry["recipe"])
+    # ── Recipe card ───────────────────────────────────────────
+    recipe_html = md_lib.markdown(entry["recipe"], extensions=["nl2br"])
+    st.markdown(f'<div class="recipe-card">{recipe_html}</div>', unsafe_allow_html=True)
     st.divider()
 
     # ── Notes ────────────────────────────────────────────────
@@ -829,7 +902,17 @@ with st.sidebar:
     history = load_history()
 
     if not history:
-        st.caption("No recipes saved yet. Extract one to get started!")
+        st.markdown("""
+<div style="text-align:center;padding:2.5rem 1rem 1rem 1rem;">
+    <div style="font-size:2.5rem;margin-bottom:0.6rem;">📭</div>
+    <p style="font-size:0.95rem;font-weight:600;color:#888;margin:0 0 0.25rem 0;">
+        No saved recipes yet
+    </p>
+    <p style="font-size:0.82rem;color:#BBB;margin:0;">
+        Extract a recipe to get started
+    </p>
+</div>
+""", unsafe_allow_html=True)
     else:
         search = st.text_input(
             "Search", placeholder="🔍  Search recipes...", label_visibility="collapsed"
@@ -858,15 +941,22 @@ with st.sidebar:
         for entry in filtered:
             idx = history.index(entry)
             with st.container(border=True):
+                if entry.get("thumbnail"):
+                    st.image(entry["thumbnail"], use_container_width=True)
                 st.markdown(
                     f"**{entry['title'][:38]}{'…' if len(entry['title']) > 38 else ''}**"
                 )
-                meta: list[str] = [entry["date"]]
+                card_meta: list[str] = [entry["date"]]
                 if entry.get("rating"):
-                    meta.append(STARS[entry["rating"]])
-                st.caption("  ·  ".join(meta))
+                    card_meta.append(STARS[entry["rating"]])
+                st.caption("  ·  ".join(card_meta))
                 if entry.get("tags"):
-                    st.caption("  ".join(f"`{t}`" for t in entry["tags"]))
+                    tag_html = " ".join(
+                        f'<span style="background:#F5EDE8;color:#C0392B;padding:1px 7px;'
+                        f'border-radius:4px;font-size:0.74rem;">{t}</span>'
+                        for t in entry["tags"]
+                    )
+                    st.markdown(tag_html, unsafe_allow_html=True)
 
                 col_view, col_del = st.columns([3, 1])
                 with col_view:
@@ -907,10 +997,18 @@ tab_video, tab_web = st.tabs(["🎬  From a Video", "🌐  From a Website"])
 # TAB 1 — VIDEO
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab_video:
-    st.markdown("Paste a TikTok, YouTube, Instagram, or other cooking video link.")
+    st.markdown(
+        '<p style="color:#999;font-size:0.92rem;margin-bottom:0.75rem;">'
+        "Supports TikTok, YouTube, Instagram, and most other cooking video platforms.</p>",
+        unsafe_allow_html=True,
+    )
     with st.form("url_form"):
-        url = st.text_input("Video URL", placeholder="https://www.tiktok.com/@...")
-        submitted = st.form_submit_button("Extract Recipe from Video", type="primary")
+        url = st.text_input(
+            "Video URL",
+            placeholder="https://www.tiktok.com/@...",
+            label_visibility="collapsed",
+        )
+        submitted = st.form_submit_button("Extract Recipe from Video", type="primary", use_container_width=True)
 
     if submitted and url.strip():
         url = url.strip()
@@ -1019,12 +1117,17 @@ with tab_video:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab_web:
     st.markdown(
-        "Paste the URL of any recipe webpage. The AI will ignore the ads, menus, and clutter "
-        "and pull out just the recipe."
+        '<p style="color:#999;font-size:0.92rem;margin-bottom:0.75rem;">'
+        "Paste any recipe page URL — ads, menus, and clutter are stripped out automatically.</p>",
+        unsafe_allow_html=True,
     )
     with st.form("web_form"):
-        web_url = st.text_input("Website URL", placeholder="https://www.seriouseats.com/...")
-        web_submitted = st.form_submit_button("Extract Recipe from Website", type="primary")
+        web_url = st.text_input(
+            "Website URL",
+            placeholder="https://www.seriouseats.com/...",
+            label_visibility="collapsed",
+        )
+        web_submitted = st.form_submit_button("Extract Recipe from Website", type="primary", use_container_width=True)
 
     if web_submitted and web_url.strip():
         web_url = web_url.strip()
