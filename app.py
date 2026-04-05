@@ -7,6 +7,7 @@ import tempfile
 import datetime
 import cv2
 import requests
+import cloudscraper
 import streamlit as st
 import anthropic
 import yt_dlp
@@ -498,8 +499,18 @@ def fetch_webpage_text(url: str) -> tuple[str, str]:
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
     }
-    resp = requests.Session().get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
+    try:
+        resp = requests.Session().get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 403:
+            # Many recipe sites use Cloudflare or similar bot detection.
+            # Fall back to cloudscraper which handles JS challenges.
+            scraper = cloudscraper.create_scraper()
+            resp = scraper.get(url, timeout=20)
+            resp.raise_for_status()
+        else:
+            raise
     soup = BeautifulSoup(resp.text, "html.parser")
     title_tag = soup.find("title")
     page_title = title_tag.get_text(strip=True) if title_tag else ""
@@ -873,13 +884,7 @@ with tab_web:
                 status.update(label="Page ready!", state="complete")
             except requests.exceptions.HTTPError as e:
                 status.update(label="Could not load page", state="error")
-                if e.response is not None and e.response.status_code == 403:
-                    st.error(
-                        "The website blocked the request (403 Forbidden). "
-                        "This site may require a login or uses bot-detection that prevents automated access."
-                    )
-                else:
-                    st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
+                st.error(f"Unable to fetch the page: {e}\n\nMake sure the URL is correct and the site is publicly accessible.")
                 st.stop()
             except requests.exceptions.RequestException as e:
                 status.update(label="Could not load page", state="error")
