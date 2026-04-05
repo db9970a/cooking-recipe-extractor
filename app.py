@@ -736,7 +736,20 @@ def _get_html(url: str) -> str:
         if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 2: Wayback Machine (bypasses datacenter IP blocks entirely)
+    # Strategy 2: Jina Reader proxy (fetches from Jina's servers, bypasses IP blocks)
+    time.sleep(1)
+    try:
+        r = requests.Session().get(
+            f"https://r.jina.ai/{url}",
+            headers={**_FETCH_HEADERS, "Accept": "text/html,application/xhtml+xml,*/*"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.text
+    except Exception:
+        pass
+
+    # Strategy 3: Wayback Machine snapshot
     time.sleep(1)
     try:
         avail = requests.get(
@@ -751,7 +764,7 @@ def _get_html(url: str) -> str:
     except Exception:
         pass
 
-    # Strategy 3: cloudscraper (Cloudflare JS challenge / 403/429 bypass)
+    # Strategy 4: cloudscraper (Cloudflare JS challenge / 403/429 bypass)
     time.sleep(1)
     try:
         r = cloudscraper.create_scraper().get(url, timeout=20)
@@ -760,7 +773,7 @@ def _get_html(url: str) -> str:
     except Exception:
         pass
 
-    # Strategy 4: requests with SSL disabled via custom adapter
+    # Strategy 5: requests with SSL disabled via custom adapter
     time.sleep(1)
     try:
         r = _no_ssl_session().get(url, headers=_FETCH_HEADERS, timeout=20)
@@ -770,7 +783,7 @@ def _get_html(url: str) -> str:
         if e.response is None or e.response.status_code not in _RETRY_CODES:
             raise
 
-    # Strategy 5: cloudscraper + SSL disabled (bad TLS config AND bot detection)
+    # Strategy 6: cloudscraper + SSL disabled (bad TLS config AND bot detection)
     time.sleep(1)
     r = _no_ssl_scraper().get(url, timeout=20)
     r.raise_for_status()
