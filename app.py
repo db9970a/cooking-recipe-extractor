@@ -20,10 +20,94 @@ from streamlit_javascript import st_javascript
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Cooking Video Recipe Extractor",
+    page_title="Recipe Extractor",
     page_icon="🍳",
     layout="wide",
 )
+
+st.markdown("""
+<style>
+/* ── Tabs: pill toggle instead of underline ───────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    background: #F5EDE8;
+    border-radius: 12px;
+    padding: 5px 6px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px;
+    padding: 7px 22px;
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #777;
+    background: transparent;
+    border: none;
+}
+.stTabs [aria-selected="true"] {
+    background: white !important;
+    color: #C0392B !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+.stTabs [data-baseweb="tab-border"]    { display: none; }
+
+/* ── Text inputs ──────────────────────────────────────────────────────────── */
+.stTextInput > div > div > input {
+    border-radius: 8px;
+    border: 1.5px solid #DDD4CF;
+    padding: 10px 14px;
+    font-size: 0.98rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #C0392B;
+    box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.1);
+}
+
+/* ── Recipe text area ─────────────────────────────────────────────────────── */
+.stTextArea > div > div > textarea {
+    border-radius: 8px;
+    border: 1.5px solid #DDD4CF;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 0.94rem;
+    line-height: 1.8;
+    background: #FFFCFA;
+}
+.stTextArea > div > div > textarea:focus {
+    border-color: #C0392B;
+    box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.1);
+}
+
+/* ── Sidebar history cards ────────────────────────────────────────────────── */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 10px !important;
+    border-color: #EDE0D8 !important;
+    border-left: 3px solid #C0392B !important;
+    margin-bottom: 6px;
+    transition: box-shadow 0.15s;
+}
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* ── Recipe markdown (dialog) ─────────────────────────────────────────────── */
+[data-testid="stModal"] .stMarkdown p,
+[data-testid="stModal"] .stMarkdown li {
+    font-size: 0.97rem;
+    line-height: 1.8;
+}
+[data-testid="stModal"] .stMarkdown h2 {
+    margin-top: 1.4rem;
+    padding-bottom: 0.2rem;
+    border-bottom: 1px solid #EDE0D8;
+}
+
+/* ── Reduce top padding on main content ───────────────────────────────────── */
+[data-testid="stMainBlockContainer"] {
+    padding-top: 1.5rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 _LS_KEY = "recipe_history_v1"
@@ -802,8 +886,20 @@ with st.sidebar:
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
-st.title("🍳 Cooking Recipe Extractor")
-st.markdown("Extract a clean, readable recipe from a cooking video **or** a cluttered recipe website.")
+st.markdown("""
+<div style="text-align:center; padding: 2rem 0 2.25rem 0;">
+    <div style="font-size:3rem; line-height:1; margin-bottom:0.6rem;">🍳</div>
+    <h1 style="font-size:2.4rem; font-weight:700; color:#1C1C1C;
+               margin:0 0 0.5rem 0; letter-spacing:-0.5px;">
+        Recipe Extractor
+    </h1>
+    <p style="color:#999; font-size:1.05rem; margin:0; font-weight:400;">
+        Extract a clean, readable recipe from any cooking video or website
+    </p>
+    <div style="width:48px; height:3px; background:#C0392B;
+                border-radius:2px; margin:1.25rem auto 0 auto;"></div>
+</div>
+""", unsafe_allow_html=True)
 
 tab_video, tab_web = st.tabs(["🎬  From a Video", "🌐  From a Website"])
 
