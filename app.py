@@ -251,8 +251,9 @@ def load_history() -> list:
         st.session_state["_history"] = history
         st.session_state["_history_loaded"] = True
         return history
-    except Exception:
+    except Exception as e:
         st.session_state["_history_loaded"] = True
+        st.error(f"Failed to load recipe history: {type(e).__name__}: {e}", icon="🔴")
         return st.session_state.get("_history", [])
 
 def save_to_history(
