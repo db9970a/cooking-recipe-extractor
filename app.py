@@ -247,6 +247,7 @@ def load_history() -> list:
             .order("updated_at", desc=True)
             .execute()
         )
+        st.sidebar.write(f"DEBUG: user_id={_get_user_id()!r}, rows returned={len(result.data)}")
         history = [row["data"] for row in result.data]
         st.session_state["_history"] = history
         st.session_state["_history_loaded"] = True
