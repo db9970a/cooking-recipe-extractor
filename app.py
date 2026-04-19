@@ -240,9 +240,6 @@ def load_history() -> list:
         st.session_state["_history_loaded"] = True
         return []
     try:
-        all_rows = client.table("recipes").select("user_id").execute()
-        stored_ids = [r["user_id"] for r in all_rows.data]
-        st.sidebar.write(f"DEBUG: querying for {_get_user_id()!r}, stored user_ids={stored_ids}")
         result = (
             client.table("recipes")
             .select("data")
