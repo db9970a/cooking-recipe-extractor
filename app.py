@@ -247,7 +247,7 @@ def load_history() -> list:
             .order("updated_at", desc=True)
             .execute()
         )
-history = [row["data"] for row in result.data]
+        history = [row["data"] for row in result.data]
         st.session_state["_history"] = history
         st.session_state["_history_loaded"] = True
         return history
