@@ -95,26 +95,21 @@ st.markdown("""
 }
 
 /* ── Card action buttons: hidden by default, revealed on hover ────────────── */
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"],
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"],
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumns"] {
+/* :has() targets the columns wrapper regardless of its data-testid name      */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] div:has(> [data-testid="stColumn"]) {
     max-height: 0;
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
     transition: max-height 0.2s ease, opacity 0.15s ease;
 }
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover [data-testid="stColumn"],
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover [data-testid="stHorizontalBlock"],
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover [data-testid="stColumns"] {
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover div:has(> [data-testid="stColumn"]) {
     max-height: 60px;
     opacity: 1;
     pointer-events: auto;
 }
 @media (hover: none) {
-    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"],
-    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"],
-    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumns"] {
+    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] div:has(> [data-testid="stColumn"]) {
         max-height: 60px !important;
         opacity: 1 !important;
         pointer-events: auto !important;
