@@ -253,7 +253,17 @@ def load_history() -> list:
         return history
     except Exception as e:
         st.session_state["_history_loaded"] = True
-        st.error(f"Failed to load recipe history: {type(e).__name__}: {e}", icon="🔴")
+        err_str = str(e)
+        if "Name or service not known" in err_str or "Errno -2" in err_str or "ConnectError" in type(e).__name__:
+            st.error(
+                "**Could not connect to the database.** "
+                "Your Supabase project may be paused (free-tier projects pause after ~1 week of inactivity). "
+                "Visit [supabase.com](https://supabase.com), find your project, and click **Restore project**. "
+                "Then reload this page.",
+                icon="🔴",
+            )
+        else:
+            st.error(f"Failed to load recipe history: {type(e).__name__}: {e}", icon="🔴")
         return st.session_state.get("_history", [])
 
 def save_to_history(
