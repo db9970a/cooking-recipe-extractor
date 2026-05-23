@@ -1140,7 +1140,7 @@ with st.sidebar:
   </div>
 </div>""", unsafe_allow_html=True)
 
-                with st.popover("⋮  Actions", use_container_width=True):
+                with st.popover("Actions", use_container_width=True):
                     if st.button("✏️  Edit", key=f"view_{idx}", use_container_width=True):
                         st.session_state["_dialog_idx"] = idx
                         st.session_state["dlg_title"] = entry.get("title", "")
