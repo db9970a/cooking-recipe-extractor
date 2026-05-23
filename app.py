@@ -1273,12 +1273,14 @@ try:
 except (KeyError, FileNotFoundError):
     _yt_key = ""
 _yt_history = st.session_state.get("_history", [])
+st.write(f"DEBUG yt_key={'set' if _yt_key else 'MISSING'}, history_count={len(_yt_history)}")
 if _yt_key and _yt_history:
     _history_key = tuple(
         f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
     )
     with st.spinner("Finding videos you might like..."):
         _suggestions = get_youtube_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
+    st.write(f"DEBUG suggestions keys: {list(_suggestions.keys()) if _suggestions else 'empty'}")
     if _suggestions and _suggestions.get("videos"):
         st.markdown(
             f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1.5rem 0 0.75rem 0;">'
