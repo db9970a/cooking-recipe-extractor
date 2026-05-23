@@ -109,14 +109,6 @@ st.markdown("""
     padding-top: 1.5rem;
 }
 
-/* ── Sidebar thumbnail images ─────────────────────────────────────────────── */
-[data-testid="stSidebar"] .stImage img {
-    height: 110px;
-    width: 100%;
-    object-fit: cover;
-    border-radius: 6px;
-    margin-bottom: 0.1rem;
-}
 
 /* ── Recipe card (dialog) ─────────────────────────────────────────────────── */
 .recipe-card {
@@ -182,6 +174,17 @@ def _safe_image(url: str, style: str) -> None:
         f'<img src="{url}" style="{style}" onerror="this.style.display=\'none\'" />',
         unsafe_allow_html=True,
     )
+
+def _format_card_date(raw: str) -> str:
+    """Convert '2026-05-20 14:30' → 'May 20' (or 'May 20, 2023' if a past year)."""
+    try:
+        dt = datetime.datetime.strptime(raw, "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return raw
+    today = datetime.datetime.now()
+    if dt.year == today.year:
+        return dt.strftime("%b %#d")
+    return dt.strftime("%b %#d, %Y")
 
 # ── Unicode font detection (runs once at import time) ─────────────────────────
 def _find_unicode_font() -> tuple[str, dict[str, str]] | None:
@@ -1083,21 +1086,40 @@ with st.sidebar:
             idx = history.index(entry)
             with st.container(border=True):
                 if entry.get("thumbnail"):
-                    _safe_image(entry["thumbnail"], "height:110px;width:100%;object-fit:cover;border-radius:6px;margin-bottom:0.1rem;")
-                st.markdown(
-                    f"**{entry['title'][:38]}{'…' if len(entry['title']) > 38 else ''}**"
-                )
-                card_meta: list[str] = [entry["date"]]
-                if entry.get("rating"):
-                    card_meta.append(STARS[entry["rating"]])
-                st.caption("  ·  ".join(card_meta))
-                if entry.get("tags"):
-                    tag_html = " ".join(
-                        f'<span style="background:#F5EDE8;color:#C0392B;padding:1px 7px;'
-                        f'border-radius:4px;font-size:0.74rem;">{t}</span>'
-                        for t in entry["tags"]
+                    thumb_html = (
+                        f'<img src="{entry["thumbnail"]}" '
+                        f'style="width:64px;height:64px;object-fit:cover;border-radius:6px;flex-shrink:0;" '
+                        f'onerror="this.outerHTML=\'<div style=&quot;width:64px;height:64px;background:#F5EDE8;'
+                        f'border-radius:6px;display:flex;align-items:center;justify-content:center;'
+                        f'font-size:1.6rem;flex-shrink:0;&quot;>🍳</div>\'" />'
                     )
-                    st.markdown(tag_html, unsafe_allow_html=True)
+                else:
+                    thumb_html = (
+                        '<div style="width:64px;height:64px;background:#F5EDE8;border-radius:6px;'
+                        'display:flex;align-items:center;justify-content:center;'
+                        'font-size:1.6rem;flex-shrink:0;">🍳</div>'
+                    )
+
+                stars_html = (
+                    f'<span style="color:#C0392B;font-size:0.78rem;">{STARS[entry["rating"]]}</span>&ensp;'
+                    if entry.get("rating") else ""
+                )
+                tags_html = " ".join(
+                    f'<span style="background:#F5EDE8;color:#C0392B;padding:1px 6px;'
+                    f'border-radius:4px;font-size:0.72rem;">{t}</span>'
+                    for t in entry.get("tags", [])
+                )
+                st.markdown(f"""
+<div style="display:flex;align-items:flex-start;gap:10px;padding:2px 0 4px 0;">
+  {thumb_html}
+  <div style="flex:1;min-width:0;overflow:hidden;">
+    <div style="font-weight:600;font-size:0.88rem;color:#1C1C1C;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                margin-bottom:3px;">{entry['title']}</div>
+    <div style="font-size:0.78rem;color:#999;margin-bottom:4px;">{_format_card_date(entry['date'])}</div>
+    <div style="line-height:1.6;">{stars_html}{tags_html}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
 
                 col_view, col_del = st.columns([3, 1])
                 with col_view:
