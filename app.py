@@ -572,10 +572,7 @@ def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
     raw = resp.content[0].text.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
-    try:
-        return _json.loads(raw)
-    except Exception:
-        raise ValueError(f"Haiku raw response: {repr(raw[:300])}")
+    return _json.loads(raw)
 
 
 @st.cache_data(ttl=4 * 3600, show_spinner=False)
@@ -1302,12 +1299,9 @@ with tab_video:
         _history_key = tuple(
             f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
         )
-        get_youtube_suggestions.clear()
         with st.spinner("Finding videos you might like..."):
             _suggestions = get_youtube_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
-        if _suggestions.get("_error"):
-            st.caption(f"DEBUG error: {_suggestions['_error']}")
-        elif _suggestions.get("videos"):
+        if _suggestions.get("videos"):
             st.markdown(
                 f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1.5rem 0 0.75rem 0;">'
                 f'{_suggestions["title"]}</p>',
