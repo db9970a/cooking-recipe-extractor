@@ -94,27 +94,6 @@ st.markdown("""
     border-left-color: #C0392B !important;
 }
 
-/* ── Card action buttons: hidden by default, revealed on hover ────────────── */
-/* :has() targets the columns wrapper regardless of its data-testid name      */
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] div:has(> [data-testid="stColumn"]) {
-    max-height: 0;
-    overflow: hidden;
-    opacity: 0;
-    pointer-events: none;
-    transition: max-height 0.2s ease, opacity 0.15s ease;
-}
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover div:has(> [data-testid="stColumn"]) {
-    max-height: 60px;
-    opacity: 1;
-    pointer-events: auto;
-}
-@media (hover: none) {
-    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] div:has(> [data-testid="stColumn"]) {
-        max-height: 60px !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-    }
-}
 
 /* ── Recipe markdown (dialog) ─────────────────────────────────────────────── */
 [data-testid="stModal"] .stMarkdown p,
@@ -1161,41 +1140,30 @@ with st.sidebar:
   </div>
 </div>""", unsafe_allow_html=True)
 
-                col_edit, col_pdf, col_del = st.columns([3, 2, 1])
-                with col_edit:
-                    if st.button("Edit", key=f"view_{idx}", use_container_width=True):
+                with st.popover("⋮  Actions", use_container_width=True):
+                    if st.button("✏️  Edit", key=f"view_{idx}", use_container_width=True):
                         st.session_state["_dialog_idx"] = idx
-                        # Seed dialog widgets with current entry values
                         st.session_state["dlg_title"] = entry.get("title", "")
                         st.session_state["dlg_notes"] = entry.get("notes", "")
                         st.session_state["dlg_rating"] = STARS[entry.get("rating", 0)]
-                        # Clear transient state from any previous dialog
                         for k in ("dlg_shopping_list", "_dlg_shop_pending",
                                   "_dlg_scale_pending", "_dlg_scale_from_val", "_dlg_scale_to_val",
                                   "_dlg_scaled_recipe"):
                             st.session_state.pop(k, None)
                         show_recipe_dialog()
-                with col_pdf:
                     pdf_bytes = generate_pdf(entry["title"], entry["recipe"])
                     st.download_button(
-                        "PDF",
+                        "🖨️  PDF",
                         data=pdf_bytes,
                         file_name=f"{entry['title'][:50].replace('/', '-')}.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                         key=f"pdf_{idx}",
                     )
-                with col_del:
-                    confirm_key = f"_confirm_del_{idx}"
-                    if st.session_state.get(confirm_key):
-                        if st.button("Sure?", key=f"del_yes_{idx}", use_container_width=True, type="primary"):
-                            delete_history_entry(entry["url"])
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
-                    else:
-                        if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
-                            st.session_state[confirm_key] = True
-                            st.rerun()
+                    st.divider()
+                    if st.button("🗑️  Delete", key=f"del_{idx}", use_container_width=True):
+                        delete_history_entry(entry["url"])
+                        st.rerun()
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
