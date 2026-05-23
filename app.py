@@ -575,6 +575,88 @@ def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
     return _json.loads(raw)
 
 
+def _build_shortform_queries(anthropic_key: str, history_key: tuple) -> dict:
+    """Ask Claude Haiku to generate short-form cooking video search queries."""
+    history_text = "\n".join(history_key)
+    client = anthropic.Anthropic(api_key=anthropic_key)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Based on these saved recipes, generate 3 specific search queries for short "
+                "cooking videos (under 3 minutes) — quick tips, techniques, or recipe ideas. "
+                "Also write a 1-sentence summary.\n\n"
+                f"Saved recipes:\n{history_text}\n\n"
+                "Respond with JSON only, no markdown:\n"
+                '{"title": "short section header like \'Quick Clips\'", "queries": ["query1", "query2", "query3"], '
+                '"summary": "one sentence"}'
+            ),
+        }],
+    )
+    import json as _json
+    raw = resp.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+    return _json.loads(raw)
+
+
+@st.cache_data(ttl=4 * 3600, show_spinner=False)
+def get_shortform_suggestions(history_key: tuple, anthropic_key: str, yt_key: str) -> dict:
+    """Fetch short-form cooking video suggestions (<4 min) from YouTube."""
+    if not history_key or not yt_key:
+        return {}
+    try:
+        plan = _build_shortform_queries(anthropic_key, history_key)
+        queries = plan.get("queries", [])[:4]
+        video_ids: list[str] = []
+        seen: set[str] = set()
+        for q in queries:
+            r = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": q,
+                    "type": "video",
+                    "videoDuration": "short",
+                    "maxResults": 2,
+                    "key": yt_key,
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            for item in r.json().get("items", []):
+                vid = item["id"].get("videoId", "")
+                if vid and vid not in seen:
+                    seen.add(vid)
+                    video_ids.append(vid)
+        if not video_ids:
+            return {}
+        r2 = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={"part": "snippet,statistics,contentDetails", "id": ",".join(video_ids), "key": yt_key},
+            timeout=10,
+        )
+        r2.raise_for_status()
+        videos = []
+        for item in r2.json().get("items", []):
+            snip = item["snippet"]
+            stats = item.get("statistics", {})
+            views = int(stats.get("viewCount", 0))
+            views_fmt = f"{views:,}" if views < 1_000_000 else f"{views/1_000_000:.1f}M"
+            videos.append({
+                "id": item["id"],
+                "title": snip["title"],
+                "channel": snip["channelTitle"],
+                "thumbnail": snip["thumbnails"].get("medium", {}).get("url", ""),
+                "views": f"{views_fmt} views",
+            })
+        return {"title": plan.get("title", "Quick Clips"), "videos": videos, "summary": plan.get("summary", "")}
+    except Exception as e:
+        return {"_error": str(e)}
+
+
 @st.cache_data(ttl=4 * 3600, show_spinner=False)
 def get_youtube_suggestions(history_key: tuple, anthropic_key: str, yt_key: str) -> dict:
     """Fetch personalized YouTube video suggestions based on recipe history."""
@@ -1331,6 +1413,41 @@ with tab_video:
             )
             if _suggestions.get("summary"):
                 st.caption(_suggestions["summary"])
+            st.markdown('<div style="margin-bottom:0.5rem;"></div>', unsafe_allow_html=True)
+
+        # Short-form row
+        with st.spinner("Finding quick clips..."):
+            _short = get_shortform_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
+        if _short.get("videos"):
+            st.markdown(
+                f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1rem 0 0.75rem 0;">'
+                f'{_short["title"]}</p>',
+                unsafe_allow_html=True,
+            )
+            short_card_parts = []
+            for v in _short["videos"]:
+                yt_url = f"https://www.youtube.com/watch?v={v['id']}"
+                short_card_parts.append(
+                    f'<a href="{yt_url}" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;width:200px;">'
+                    f'<div style="border-radius:10px;overflow:hidden;background:#fff;'
+                    f'box-shadow:0 2px 8px rgba(0,0,0,0.09);">'
+                    f'<img src="{v["thumbnail"]}" style="width:200px;height:113px;object-fit:cover;display:block;" />'
+                    f'<div style="padding:8px 10px 10px 10px;">'
+                    f'<div style="font-size:0.82rem;font-weight:600;color:#1C1C1C;line-height:1.35;'
+                    f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;'
+                    f'margin-bottom:4px;">{v["title"]}</div>'
+                    f'<div style="font-size:0.75rem;color:#999;">{v["channel"]}</div>'
+                    f'<div style="font-size:0.72rem;color:#bbb;margin-top:2px;">{v["views"]}</div>'
+                    f'</div></div></a>'
+                )
+            st.markdown(
+                '<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;">'
+                + "".join(short_card_parts)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+            if _short.get("summary"):
+                st.caption(_short["summary"])
             st.markdown('<div style="margin-bottom:1rem;"></div>', unsafe_allow_html=True)
 
     if submitted and url.strip():
