@@ -569,7 +569,10 @@ def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
         }],
     )
     import json as _json
-    return _json.loads(resp.content[0].text)
+    raw = resp.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+    return _json.loads(raw)
 
 
 @st.cache_data(ttl=4 * 3600, show_spinner=False)
