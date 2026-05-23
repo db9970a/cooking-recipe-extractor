@@ -1302,6 +1302,7 @@ with tab_video:
         _history_key = tuple(
             f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
         )
+        get_youtube_suggestions.clear()
         with st.spinner("Finding videos you might like..."):
             _suggestions = get_youtube_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
         if _suggestions.get("_error"):
