@@ -572,7 +572,10 @@ def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
     raw = resp.content[0].text.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
-    return _json.loads(raw)
+    try:
+        return _json.loads(raw)
+    except Exception:
+        raise ValueError(f"Haiku raw response: {repr(raw[:300])}")
 
 
 @st.cache_data(ttl=4 * 3600, show_spinner=False)
