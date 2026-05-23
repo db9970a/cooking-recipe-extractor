@@ -1137,9 +1137,9 @@ with st.sidebar:
   </div>
 </div>""", unsafe_allow_html=True)
 
-                col_view, col_del = st.columns([3, 1])
-                with col_view:
-                    if st.button("View", key=f"view_{idx}", use_container_width=True):
+                col_edit, col_pdf, col_del = st.columns([3, 2, 1])
+                with col_edit:
+                    if st.button("Edit", key=f"view_{idx}", use_container_width=True):
                         st.session_state["_dialog_idx"] = idx
                         # Seed dialog widgets with current entry values
                         st.session_state["dlg_title"] = entry.get("title", "")
@@ -1151,6 +1151,16 @@ with st.sidebar:
                                   "_dlg_scaled_recipe"):
                             st.session_state.pop(k, None)
                         show_recipe_dialog()
+                with col_pdf:
+                    pdf_bytes = generate_pdf(entry["title"], entry["recipe"])
+                    st.download_button(
+                        "PDF",
+                        data=pdf_bytes,
+                        file_name=f"{entry['title'][:50].replace('/', '-')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"pdf_{idx}",
+                    )
                 with col_del:
                     confirm_key = f"_confirm_del_{idx}"
                     if st.session_state.get(confirm_key):
