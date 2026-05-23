@@ -559,8 +559,10 @@ def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
             "role": "user",
             "content": (
                 "Based on these saved recipes, generate 3 specific YouTube search queries "
-                "that would find interesting new cooking videos this person would enjoy. "
-                "Also write a 1-sentence summary explaining what the suggestions are based on.\n\n"
+                "that would inspire this person to try something NEW and DIFFERENT — "
+                "not more of what they already cook, but adjacent cuisines, unexpected techniques, "
+                "or ingredients they haven't used yet. Push them outside their comfort zone. "
+                "Also write a 1-sentence summary explaining the inspiration angle.\n\n"
                 f"Saved recipes:\n{history_text}\n\n"
                 "Respond with JSON only, no markdown:\n"
                 '{"title": "short section header", "queries": ["query1", "query2", "query3"], '
@@ -586,8 +588,9 @@ def _build_shortform_queries(anthropic_key: str, history_key: tuple) -> dict:
             "role": "user",
             "content": (
                 "Based on these saved recipes, generate 3 specific search queries for short "
-                "cooking videos (under 3 minutes) — quick tips, techniques, or recipe ideas. "
-                "Also write a 1-sentence summary.\n\n"
+                "cooking videos (under 3 minutes) that teach something NEW — a technique, "
+                "ingredient, or cuisine style this person hasn't tried yet based on their history. "
+                "Prioritize inspiration over repetition. Also write a 1-sentence summary.\n\n"
                 f"Saved recipes:\n{history_text}\n\n"
                 "Respond with JSON only, no markdown:\n"
                 '{"title": "short section header like \'Quick Clips\'", "queries": ["query1", "query2", "query3"], '
