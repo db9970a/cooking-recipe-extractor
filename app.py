@@ -547,6 +547,91 @@ def scale_recipe(client: anthropic.Anthropic, recipe: str,
     return resp.content[0].text
 
 
+# ── YouTube suggestions ───────────────────────────────────────────────────────
+def _build_suggestion_queries(anthropic_key: str, history_key: tuple) -> dict:
+    """Ask Claude Haiku to generate personalized YouTube search queries from recipe history."""
+    history_text = "\n".join(history_key)
+    client = anthropic.Anthropic(api_key=anthropic_key)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Based on these saved recipes, generate 3 specific YouTube search queries "
+                "that would find interesting new cooking videos this person would enjoy. "
+                "Also write a 1-sentence summary explaining what the suggestions are based on.\n\n"
+                f"Saved recipes:\n{history_text}\n\n"
+                "Respond with JSON only, no markdown:\n"
+                '{"title": "short section header", "queries": ["query1", "query2", "query3"], '
+                '"summary": "one sentence"}'
+            ),
+        }],
+    )
+    import json as _json
+    return _json.loads(resp.content[0].text)
+
+
+@st.cache_data(ttl=4 * 3600, show_spinner=False)
+def get_youtube_suggestions(history_key: tuple, anthropic_key: str, yt_key: str) -> dict:
+    """Fetch personalized YouTube video suggestions based on recipe history."""
+    if not history_key or not yt_key:
+        return {}
+    try:
+        plan = _build_suggestion_queries(anthropic_key, history_key)
+        queries = plan.get("queries", [])[:4]
+        video_ids: list[str] = []
+        seen: set[str] = set()
+        for q in queries:
+            r = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": q,
+                    "type": "video",
+                    "maxResults": 2,
+                    "videoCategoryId": "26",  # Howto & Style (covers cooking)
+                    "key": yt_key,
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            for item in r.json().get("items", []):
+                vid = item["id"].get("videoId", "")
+                if vid and vid not in seen:
+                    seen.add(vid)
+                    video_ids.append(vid)
+        if not video_ids:
+            return {}
+        # Batch fetch view counts + titles
+        r2 = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "part": "snippet,statistics",
+                "id": ",".join(video_ids),
+                "key": yt_key,
+            },
+            timeout=10,
+        )
+        r2.raise_for_status()
+        videos = []
+        for item in r2.json().get("items", []):
+            snip = item["snippet"]
+            stats = item.get("statistics", {})
+            views = int(stats.get("viewCount", 0))
+            views_fmt = f"{views:,}" if views < 1_000_000 else f"{views/1_000_000:.1f}M"
+            videos.append({
+                "id": item["id"],
+                "title": snip["title"],
+                "channel": snip["channelTitle"],
+                "thumbnail": snip["thumbnails"].get("medium", {}).get("url", ""),
+                "views": f"{views_fmt} views",
+            })
+        return {"title": plan.get("title", "Recommended for You"), "videos": videos, "summary": plan.get("summary", "")}
+    except Exception:
+        return {}
+
+
 # ── Video / web helpers ───────────────────────────────────────────────────────
 def extract_frames(video_path: str, max_frames: int = 30) -> list[str]:
     """Extract evenly-spaced frames from a video as base64-encoded JPEGs."""
@@ -1181,6 +1266,47 @@ st.markdown("""
                 border-radius:2px; margin:1.25rem auto 0 auto;"></div>
 </div>
 """, unsafe_allow_html=True)
+
+# ── YouTube suggestions section ───────────────────────────────────────────────
+_yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
+_yt_history = st.session_state.get("_history", [])
+if _yt_key and _yt_history:
+    _history_key = tuple(
+        f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
+    )
+    with st.spinner("Finding videos you might like..."):
+        _suggestions = get_youtube_suggestions(_history_key, ANTHROPIC_API_KEY, _yt_key)
+    if _suggestions and _suggestions.get("videos"):
+        st.markdown(
+            f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1.5rem 0 0.75rem 0;">'
+            f'{_suggestions["title"]}</p>',
+            unsafe_allow_html=True,
+        )
+        card_html_parts = []
+        for v in _suggestions["videos"]:
+            yt_url = f"https://www.youtube.com/watch?v={v['id']}"
+            card_html_parts.append(
+                f'<a href="{yt_url}" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;width:200px;">'
+                f'<div style="border-radius:10px;overflow:hidden;background:#fff;'
+                f'box-shadow:0 2px 8px rgba(0,0,0,0.09);transition:box-shadow 0.2s;">'
+                f'<img src="{v["thumbnail"]}" style="width:200px;height:113px;object-fit:cover;display:block;" />'
+                f'<div style="padding:8px 10px 10px 10px;">'
+                f'<div style="font-size:0.82rem;font-weight:600;color:#1C1C1C;line-height:1.35;'
+                f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;'
+                f'margin-bottom:4px;">{v["title"]}</div>'
+                f'<div style="font-size:0.75rem;color:#999;">{v["channel"]}</div>'
+                f'<div style="font-size:0.72rem;color:#bbb;margin-top:2px;">{v["views"]}</div>'
+                f'</div></div></a>'
+            )
+        st.markdown(
+            '<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;">'
+            + "".join(card_html_parts)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+        if _suggestions.get("summary"):
+            st.caption(_suggestions["summary"])
+        st.markdown('<div style="margin-bottom:1.25rem;"></div>', unsafe_allow_html=True)
 
 tab_video, tab_web = st.tabs(["🎬  From a Video", "🌐  From a Website"])
 
