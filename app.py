@@ -276,16 +276,32 @@ def load_history() -> list:
             st.error(f"Failed to load recipe history: {type(e).__name__}: {e}", icon="🔴")
         return st.session_state.get("_history", [])
 
+def _snapshot_thumbnail(url: str) -> str:
+    """Download a thumbnail URL and return a base64 data URI, or "" on failure."""
+    if not url:
+        return ""
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        mime = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        if not mime.startswith("image/"):
+            return ""
+        data = base64.standard_b64encode(r.content).decode("utf-8")
+        return f"data:{mime};base64,{data}"
+    except Exception:
+        return ""
+
 def save_to_history(
     title: str, url: str, recipe: str, thumbnail: str = "",
     tags: list[str] | None = None, rating: int = 0,
 ) -> None:
+    stored_thumbnail = _snapshot_thumbnail(thumbnail) if thumbnail else ""
     entry = {
         "title": title,
         "url": url,
         "recipe": recipe,
         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "thumbnail": thumbnail,
+        "thumbnail": stored_thumbnail,
         "tags": tags or [],
         "rating": rating,
         "notes": "",
