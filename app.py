@@ -84,12 +84,35 @@ st.markdown("""
 [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 10px !important;
     border-color: #EDE0D8 !important;
-    border-left: 3px solid #C0392B !important;
-    margin-bottom: 6px;
-    transition: box-shadow 0.15s;
+    border-left: 3px solid #DDD4CF !important;
+    margin-bottom: 10px;
+    transition: box-shadow 0.2s, background 0.2s;
 }
 [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    box-shadow: 0 3px 12px rgba(0,0,0,0.1);
+    background: #FFFAF8;
+    border-left-color: #C0392B !important;
+}
+
+/* ── Card action buttons: hidden by default, revealed on hover ────────────── */
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"] {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:hover [data-testid="stHorizontalBlock"] {
+    max-height: 60px;
+    opacity: 1;
+    pointer-events: auto;
+}
+@media (hover: none) {
+    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"] {
+        max-height: 60px !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
 }
 
 /* ── Recipe markdown (dialog) ─────────────────────────────────────────────── */
@@ -1126,13 +1149,13 @@ with st.sidebar:
                     for t in entry.get("tags", [])
                 )
                 st.markdown(f"""
-<div style="display:flex;align-items:flex-start;gap:10px;padding:2px 0 4px 0;">
+<div style="display:flex;align-items:flex-start;gap:10px;padding:4px 0 6px 0;">
   {thumb_html}
-  <div style="flex:1;min-width:0;overflow:hidden;">
-    <div style="font-weight:600;font-size:0.88rem;color:#1C1C1C;
-                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-                margin-bottom:3px;">{entry['title']}</div>
-    <div style="font-size:0.78rem;color:#999;margin-bottom:4px;">{_format_card_date(entry['date'])}</div>
+  <div style="flex:1;min-width:0;">
+    <div style="font-weight:700;font-size:0.93rem;color:#1C1C1C;
+                line-height:1.3;margin-bottom:4px;">{entry['title']}</div>
+    <div style="font-size:0.71rem;color:#BDB5B0;letter-spacing:0.2px;
+                margin-bottom:5px;">{_format_card_date(entry['date'])}</div>
     <div style="line-height:1.6;">{stars_html}{tags_html}</div>
   </div>
 </div>""", unsafe_allow_html=True)
