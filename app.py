@@ -287,7 +287,7 @@ def save_to_history(
                 "user_id": _get_user_id(),
                 "url": url,
                 "data": entry,
-                "updated_at": datetime.datetime.utcnow().isoformat(),
+                "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             },
             on_conflict="user_id,url",
         ).execute()
@@ -305,7 +305,7 @@ def update_history_entry(url: str, **kwargs) -> None:
             client = get_supabase_client()
             if client:
                 client.table("recipes").update(
-                    {"data": entry, "updated_at": datetime.datetime.utcnow().isoformat()}
+                    {"data": entry, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
                 ).eq("user_id", _get_user_id()).eq("url", url).execute()
             break
     st.session_state["_history"] = history
@@ -683,13 +683,6 @@ _FETCH_HEADERS = {
     "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://www.google.com/",
     "DNT": "1",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "cross-site",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
@@ -1212,9 +1205,9 @@ with tab_video:
             with st.spinner("Claude is watching the video and writing the recipe..."):
                 try:
                     with client.messages.stream(
-                        model="claude-opus-4-6",
+                        model="claude-sonnet-4-6",
                         max_tokens=4096,
-                        system=SYSTEM_PROMPT,
+                        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                         messages=[{
                             "role": "user",
                             "content": [
@@ -1345,7 +1338,7 @@ with tab_web:
                     with client.messages.stream(
                         model="claude-sonnet-4-6",
                         max_tokens=4096,
-                        system=WEBSITE_SYSTEM_PROMPT,
+                        system=[{"type": "text", "text": WEBSITE_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                         messages=[{
                             "role": "user",
                             "content": (
