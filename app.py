@@ -1268,7 +1268,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── YouTube suggestions section ───────────────────────────────────────────────
-_yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
+try:
+    _yt_key = st.secrets["YOUTUBE_API_KEY"]
+except (KeyError, FileNotFoundError):
+    _yt_key = ""
 _yt_history = st.session_state.get("_history", [])
 if _yt_key and _yt_history:
     _history_key = tuple(
