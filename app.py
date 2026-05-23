@@ -1226,19 +1226,29 @@ with tab_video:
                 video_path, tmpdir = download_video(url)
 
                 if not video_path:
-                    status.update(label="Could not download video", state="error")
-                    st.error("Unable to download this video. Make sure the URL is valid and the video is public.")
-                    st.stop()
-
-                file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-                st.write(f"Video downloaded ({file_size_mb:.1f} MB). Extracting frames...")
-                frames = extract_frames(video_path)
-                if not frames:
-                    status.update(label="Could not read video frames", state="error")
-                    st.error("Downloaded the video but could not extract frames. The file may be corrupted.")
-                    st.stop()
-                st.write(f"Extracted {len(frames)} frames.")
-                status.update(label="Video ready!", state="complete")
+                    if transcript:
+                        st.write("Video download failed — using transcript only.")
+                        frames = []
+                        status.update(label="Using transcript (download failed)", state="complete")
+                    else:
+                        status.update(label="Could not download video", state="error")
+                        st.error(
+                            "Unable to download this video and no transcript was found. "
+                            "Make sure the URL is valid and the video is public. "
+                            "For long videos, YouTube may block the download — try the "
+                            "**From a Website** tab if a recipe page exists."
+                        )
+                        st.stop()
+                else:
+                    file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                    st.write(f"Video downloaded ({file_size_mb:.1f} MB). Extracting frames...")
+                    frames = extract_frames(video_path)
+                    if not frames:
+                        status.update(label="Could not read video frames", state="error")
+                        st.error("Downloaded the video but could not extract frames. The file may be corrupted.")
+                        st.stop()
+                    st.write(f"Extracted {len(frames)} frames.")
+                    status.update(label="Video ready!", state="complete")
 
             client = get_anthropic_client()
             if not client:
@@ -1258,20 +1268,29 @@ with tab_video:
                 if transcript else []
             )
 
-            with st.spinner("Claude is analyzing the video and writing the recipe (usually 30–60 seconds)..."):
+            if frames:
+                message_content = [
+                    *[{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": f}} for f in frames],
+                    *transcript_block,
+                    {"type": "text", "text": f"These are {len(frames)} frames extracted in order from a cooking video{title_hint}. Please extract the complete recipe."},
+                ]
+                spinner_text = "Claude is analyzing the video and writing the recipe (usually 30–60 seconds)..."
+            else:
+                description = metadata.get("description", "")
+                desc_block = f"\n\nVideo description:\n{description}" if description else ""
+                message_content = [
+                    *transcript_block,
+                    {"type": "text", "text": f"This is the auto-generated transcript from a cooking video{title_hint}. The video could not be downloaded so no frames are available. Please extract the complete recipe from the transcript.{desc_block}"},
+                ]
+                spinner_text = "Claude is reading the transcript and writing the recipe (usually 15–30 seconds)..."
+
+            with st.spinner(spinner_text):
                 try:
                     with client.messages.stream(
                         model="claude-sonnet-4-6",
                         max_tokens=4096,
                         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-                        messages=[{
-                            "role": "user",
-                            "content": [
-                                *[{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": f}} for f in frames],
-                                *transcript_block,
-                                {"type": "text", "text": f"These are {len(frames)} frames extracted in order from a cooking video{title_hint}. Please extract the complete recipe."},
-                            ],
-                        }],
+                        messages=[{"role": "user", "content": message_content}],
                     ) as stream:
                         for text_chunk in stream.text_stream:
                             full_recipe += text_chunk
