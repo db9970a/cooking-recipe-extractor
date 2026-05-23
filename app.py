@@ -176,6 +176,13 @@ RECIPE_TAGS = [
     "Seafood", "Chicken", "Beef", "Pork", "Pasta", "Soup", "Salad",
 ]
 
+def _safe_image(url: str, style: str) -> None:
+    """Render an image that silently hides itself if the URL is broken."""
+    st.markdown(
+        f'<img src="{url}" style="{style}" onerror="this.style.display=\'none\'" />',
+        unsafe_allow_html=True,
+    )
+
 # ── Unicode font detection (runs once at import time) ─────────────────────────
 def _find_unicode_font() -> tuple[str, dict[str, str]] | None:
     """Return (family_name, {style: path}) for a Unicode TTF font, or None."""
@@ -884,9 +891,7 @@ def show_recipe_dialog() -> None:
             _st = st.session_state.pop("_dlg_scale_to_val", 4)
             with st.spinner(f"Scaling from {_sf} to {_st} servings..."):
                 scaled = scale_recipe(client, entry["recipe"], _sf, _st)
-            update_history_entry(entry["url"], recipe=scaled)
-            history = st.session_state.get("_history", [])
-            entry = history[idx]
+            st.session_state["_dlg_scaled_recipe"] = scaled
         st.session_state.pop("_dlg_scale_pending", None)
 
     # ── Title (editable) ─────────────────────────────────────
@@ -902,7 +907,7 @@ def show_recipe_dialog() -> None:
 
     # ── Header ───────────────────────────────────────────────
     if entry.get("thumbnail"):
-        st.image(entry["thumbnail"], use_container_width=True)
+        _safe_image(entry["thumbnail"], "width:100%;border-radius:8px;margin-bottom:0.5rem;")
 
     meta_parts = [f"🗓 {entry['date']}"]
     if entry.get("rating"):
@@ -922,7 +927,10 @@ def show_recipe_dialog() -> None:
     )
 
     # ── Recipe card ───────────────────────────────────────────
-    recipe_html = md_lib.markdown(entry["recipe"], extensions=["nl2br"])
+    display_recipe = st.session_state.get("_dlg_scaled_recipe", entry["recipe"])
+    if "_dlg_scaled_recipe" in st.session_state:
+        st.info("Recipe has been scaled. Click **Save Changes** below to save the new version.")
+    recipe_html = md_lib.markdown(display_recipe, extensions=["nl2br"])
     st.markdown(f'<div class="recipe-card">{recipe_html}</div>', unsafe_allow_html=True)
     # ── Scale recipe ─────────────────────────────────────────
     with st.expander("⚖️ Scale Recipe"):
@@ -957,11 +965,13 @@ def show_recipe_dialog() -> None:
 
     if st.button("💾 Save Changes", type="primary", key="dlg_save"):
         new_title = st.session_state.get("dlg_title", "").strip() or entry["title"]
+        scaled_recipe = st.session_state.pop("_dlg_scaled_recipe", None)
         update_history_entry(
             entry["url"],
             title=new_title,
             notes=st.session_state.get("dlg_notes", ""),
             rating=STARS.index(st.session_state.get("dlg_rating", STARS[0])),
+            **({"recipe": scaled_recipe} if scaled_recipe else {}),
         )
         st.rerun()
 
@@ -1073,7 +1083,7 @@ with st.sidebar:
             idx = history.index(entry)
             with st.container(border=True):
                 if entry.get("thumbnail"):
-                    st.image(entry["thumbnail"], use_container_width=True)
+                    _safe_image(entry["thumbnail"], "height:110px;width:100%;object-fit:cover;border-radius:6px;margin-bottom:0.1rem;")
                 st.markdown(
                     f"**{entry['title'][:38]}{'…' if len(entry['title']) > 38 else ''}**"
                 )
@@ -1099,13 +1109,21 @@ with st.sidebar:
                         st.session_state["dlg_rating"] = STARS[entry.get("rating", 0)]
                         # Clear transient state from any previous dialog
                         for k in ("dlg_shopping_list", "_dlg_shop_pending",
-                                  "_dlg_scale_pending", "_dlg_scale_from_val", "_dlg_scale_to_val"):
+                                  "_dlg_scale_pending", "_dlg_scale_from_val", "_dlg_scale_to_val",
+                                  "_dlg_scaled_recipe"):
                             st.session_state.pop(k, None)
                         show_recipe_dialog()
                 with col_del:
-                    if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
-                        delete_history_entry(entry["url"])
-                        st.rerun()
+                    confirm_key = f"_confirm_del_{idx}"
+                    if st.session_state.get(confirm_key):
+                        if st.button("Sure?", key=f"del_yes_{idx}", use_container_width=True, type="primary"):
+                            delete_history_entry(entry["url"])
+                            st.session_state.pop(confirm_key, None)
+                            st.rerun()
+                    else:
+                        if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
@@ -1202,7 +1220,7 @@ with tab_video:
                 if transcript else []
             )
 
-            with st.spinner("Claude is watching the video and writing the recipe..."):
+            with st.spinner("Claude is analyzing the video and writing the recipe (usually 30–60 seconds)..."):
                 try:
                     with client.messages.stream(
                         model="claude-sonnet-4-6",
@@ -1333,7 +1351,7 @@ with tab_web:
             recipe_placeholder = st.empty()
             full_recipe = ""
 
-            with st.spinner("Claude is reading the page and writing the recipe..."):
+            with st.spinner("Claude is reading the page and writing the recipe (usually 10–20 seconds)..."):
                 try:
                     with client.messages.stream(
                         model="claude-sonnet-4-6",
@@ -1359,7 +1377,7 @@ with tab_web:
                 except anthropic.APIError as e:
                     st.error(f"API error: {e}")
 
-            if full_recipe and "#" in full_recipe:
+            if full_recipe:
                 display_title = page_title or web_url
                 st.session_state["pending_recipe"] = {
                     "recipe": full_recipe,
@@ -1413,6 +1431,7 @@ if st.session_state.get("pending_recipe"):
                     scaled = scale_recipe(client, edited_recipe, int(from_servings), int(to_servings))
                 st.session_state["recipe_editor"] = scaled
                 st.session_state["pending_recipe"]["recipe"] = scaled
+                st.toast("Recipe scaled — Claude rewrote the quantities. Review before saving.", icon="⚠️")
                 st.rerun()
 
     # ── Shopping list ─────────────────────────────────────────────────────────
@@ -1466,7 +1485,7 @@ if st.session_state.get("pending_recipe"):
                 use_container_width=True,
             )
         with col3:
-            if st.button("📚 Add to Collection", use_container_width=True, type="primary"):
+            if st.button("💾 Save to Collection", use_container_width=True, type="primary"):
                 try:
                     save_to_history(
                         pending["title"], pending["url"],
