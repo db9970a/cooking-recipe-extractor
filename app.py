@@ -628,8 +628,8 @@ def get_youtube_suggestions(history_key: tuple, anthropic_key: str, yt_key: str)
                 "views": f"{views_fmt} views",
             })
         return {"title": plan.get("title", "Recommended for You"), "videos": videos, "summary": plan.get("summary", "")}
-    except Exception:
-        return {}
+    except Exception as e:
+        return {"_error": str(e)}
 
 
 # ── Video / web helpers ───────────────────────────────────────────────────────
@@ -1267,52 +1267,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── YouTube suggestions section ───────────────────────────────────────────────
-try:
-    _yt_key = st.secrets["YOUTUBE_API_KEY"]
-except (KeyError, FileNotFoundError):
-    _yt_key = ""
-_yt_history = st.session_state.get("_history", [])
-st.write(f"DEBUG yt_key={'set' if _yt_key else 'MISSING'}, history_count={len(_yt_history)}")
-if _yt_key and _yt_history:
-    _history_key = tuple(
-        f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
-    )
-    with st.spinner("Finding videos you might like..."):
-        _suggestions = get_youtube_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
-    st.write(f"DEBUG suggestions keys: {list(_suggestions.keys()) if _suggestions else 'empty'}")
-    if _suggestions and _suggestions.get("videos"):
-        st.markdown(
-            f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1.5rem 0 0.75rem 0;">'
-            f'{_suggestions["title"]}</p>',
-            unsafe_allow_html=True,
-        )
-        card_html_parts = []
-        for v in _suggestions["videos"]:
-            yt_url = f"https://www.youtube.com/watch?v={v['id']}"
-            card_html_parts.append(
-                f'<a href="{yt_url}" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;width:200px;">'
-                f'<div style="border-radius:10px;overflow:hidden;background:#fff;'
-                f'box-shadow:0 2px 8px rgba(0,0,0,0.09);transition:box-shadow 0.2s;">'
-                f'<img src="{v["thumbnail"]}" style="width:200px;height:113px;object-fit:cover;display:block;" />'
-                f'<div style="padding:8px 10px 10px 10px;">'
-                f'<div style="font-size:0.82rem;font-weight:600;color:#1C1C1C;line-height:1.35;'
-                f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;'
-                f'margin-bottom:4px;">{v["title"]}</div>'
-                f'<div style="font-size:0.75rem;color:#999;">{v["channel"]}</div>'
-                f'<div style="font-size:0.72rem;color:#bbb;margin-top:2px;">{v["views"]}</div>'
-                f'</div></div></a>'
-            )
-        st.markdown(
-            '<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;">'
-            + "".join(card_html_parts)
-            + "</div>",
-            unsafe_allow_html=True,
-        )
-        if _suggestions.get("summary"):
-            st.caption(_suggestions["summary"])
-        st.markdown('<div style="margin-bottom:1.25rem;"></div>', unsafe_allow_html=True)
-
 tab_video, tab_web = st.tabs(["🎬  From a Video", "🌐  From a Website"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1331,6 +1285,52 @@ with tab_video:
             label_visibility="collapsed",
         )
         submitted = st.form_submit_button("Extract Recipe from Video", type="primary", use_container_width=True)
+
+    # ── YouTube suggestions ───────────────────────────────────────────────────
+    try:
+        _yt_key = st.secrets["YOUTUBE_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        _yt_key = ""
+    _yt_history = st.session_state.get("_history", [])
+    if _yt_key and _yt_history:
+        _history_key = tuple(
+            f"{e['title']} [{', '.join(e.get('tags', []))}]" for e in _yt_history
+        )
+        with st.spinner("Finding videos you might like..."):
+            _suggestions = get_youtube_suggestions(_history_key, os.environ.get("ANTHROPIC_API_KEY", ""), _yt_key)
+        if _suggestions.get("_error"):
+            st.caption(f"DEBUG error: {_suggestions['_error']}")
+        elif _suggestions.get("videos"):
+            st.markdown(
+                f'<p style="font-size:1.05rem;font-weight:600;color:#1C1C1C;margin:1.5rem 0 0.75rem 0;">'
+                f'{_suggestions["title"]}</p>',
+                unsafe_allow_html=True,
+            )
+            card_html_parts = []
+            for v in _suggestions["videos"]:
+                yt_url = f"https://www.youtube.com/watch?v={v['id']}"
+                card_html_parts.append(
+                    f'<a href="{yt_url}" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;width:200px;">'
+                    f'<div style="border-radius:10px;overflow:hidden;background:#fff;'
+                    f'box-shadow:0 2px 8px rgba(0,0,0,0.09);">'
+                    f'<img src="{v["thumbnail"]}" style="width:200px;height:113px;object-fit:cover;display:block;" />'
+                    f'<div style="padding:8px 10px 10px 10px;">'
+                    f'<div style="font-size:0.82rem;font-weight:600;color:#1C1C1C;line-height:1.35;'
+                    f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;'
+                    f'margin-bottom:4px;">{v["title"]}</div>'
+                    f'<div style="font-size:0.75rem;color:#999;">{v["channel"]}</div>'
+                    f'<div style="font-size:0.72rem;color:#bbb;margin-top:2px;">{v["views"]}</div>'
+                    f'</div></div></a>'
+                )
+            st.markdown(
+                '<div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;">'
+                + "".join(card_html_parts)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+            if _suggestions.get("summary"):
+                st.caption(_suggestions["summary"])
+            st.markdown('<div style="margin-bottom:1rem;"></div>', unsafe_allow_html=True)
 
     if submitted and url.strip():
         url = url.strip()
